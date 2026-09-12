@@ -1,0 +1,63 @@
+{
+  "name": "client",
+  "private": true,
+  "version": "0.0.0",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
+    "dev:vite": "vite",
+    "dev:electron": "wait-on http://localhost:5173 && nodemon --watch electron --ext ts --exec 'tsc -p tsconfig.electron.json && cross-env NODE_ENV=development electron .'",
+    "build": "tsc -b || true && vite build && tsc -p tsconfig.electron.json",
+    "build:electron": "electron-builder",
+    "lint": "oxlint",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "axios": "^1.20.0",
+    "better-sqlite3": "^13.0.3",
+    "electron-store": "^11.0.2",
+    "fingerprint-generator": "^2.1.88",
+    "fingerprint-injector": "^2.1.88",
+    "imap-simple": "^5.1.0",
+    "mailparser": "^3.9.20",
+    "playwright": "^1.63.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "socket.io-client": "^4.8.3"
+  },
+  "devDependencies": {
+    "@types/imap-simple": "^4.2.10",
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.1.0",
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
+    "nodemon": "^3.1.14",
+    "oxlint": "^1.79.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.2.2",
+    "wait-on": "^9.1.0"
+  },
+  "author": "Meliora",
+  "description": "FollowFree Client",
+  "build": {
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
+  }
+}
