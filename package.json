@@ -49,6 +49,10 @@
   "author": "Meliora",
   "description": "FollowFree Client",
   "build": {
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
     "mac": {
       "target": [
         "dmg"
