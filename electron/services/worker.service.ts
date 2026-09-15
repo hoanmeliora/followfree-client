@@ -281,9 +281,10 @@ export class WorkerService {
   private async createBrowserContext(accountId: string, proxyUrl?: string): Promise<{ context: BrowserContext, page: Page }> {
     const { FingerprintGenerator } = require('fingerprint-generator');
     const { FingerprintInjector } = require('fingerprint-injector');
+    const { app } = require('electron');
     const path = require('path');
     
-    const profilePath = path.join(__dirname, '../../profiles', accountId);
+    const profilePath = path.join(app.getPath('userData'), 'profiles', accountId);
 
     const fingerprintGenerator = new FingerprintGenerator({
         browsers: [{ name: 'chrome', minVersion: 110 }],

@@ -77,8 +77,9 @@ export class PageFarmService {
 
             // 2. Mở trình duyệt ẩn danh (Đồng bộ User-Agent và Cache Profile)
             this.log('Mở trình duyệt Playwright với Profile bọc thép...');
+            const { app } = require('electron');
             const path = require('path');
-            const profilePath = path.join(__dirname, '../../profiles', accountId);
+            const profilePath = path.join(app.getPath('userData'), 'profiles', accountId);
 
             context = await chromium.launchPersistentContext(profilePath, {
                 headless: false, // Hiển thị theo yêu cầu của sếp
