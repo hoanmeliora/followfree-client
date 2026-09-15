@@ -17,6 +17,10 @@ export class DepositService {
   async getDepositInfo() {
     try {
       const res = await axios.get(`${SERVER_URL}/deposits/info`, { headers: this.getHeaders() })
+      // Override tạm thời vì server thật chưa deploy bản mới
+      res.data.bankId = 'TCB';
+      res.data.accountNo = '699111111';
+      res.data.accountName = 'VNVM GROUP';
       return { success: true, data: res.data }
     } catch (err: any) {
       const message = err.response?.data?.message ?? 'Không lấy được thông tin nạp tiền'

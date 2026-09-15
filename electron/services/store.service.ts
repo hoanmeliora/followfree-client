@@ -62,6 +62,7 @@ const schema = {
 
 export class StoreService {
   private store: Store<AppData>
+  public activeIpv4Accounts = new Set<string>()
 
   constructor() {
     this.store = new Store<AppData>({

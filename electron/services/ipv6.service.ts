@@ -9,6 +9,10 @@ export class Ipv6Service {
   private currentVirtualIp: string | null = null
   private networkInterfaceName: string = ''
 
+  public get isAvailable(): boolean {
+    return !!this.basePrefix
+  }
+
   constructor() {
     this.detectNetworkInterface()
   }

@@ -83,7 +83,7 @@ export class PageFarmService {
             context = await chromium.launchPersistentContext(profilePath, {
                 headless: false, // Hiển thị theo yêu cầu của sếp
                 userAgent: userAgent || undefined, // Dùng đúng UserAgent của nick
-                executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+                channel: 'chrome',
                 args: [
                     '--disable-gpu',
                     '--no-sandbox',

@@ -192,10 +192,7 @@ export class WorkerService {
     const task = this.taskQueue.shift()!
 
     if (!this.ipv6Available) {
-      console.warn('[Worker] 🚨 Từ chối chạy task: Mạng không có IPv6')
-      this.reportTaskResult(task.id, '', false, 'No IPv6 network available')
-      this.finishTask()
-      return
+      console.warn('[Worker] 🚨 Mạng không có IPv6 - Bật chế độ giới hạn 3 tài khoản luân phiên')
     }
 
     const executor = this.executorRegistry.get(task.campaign.platform)
@@ -213,9 +210,20 @@ export class WorkerService {
     try {
       const accounts = this.store.getAccounts()
       const doneIds = new Set(task.doneAccountIds || [])
-      const matchingAccounts = accounts.filter(
+      let matchingAccounts = accounts.filter(
         (a) => a.platform === task.campaign.platform && a.status === 'ACTIVE' && !doneIds.has(a.id),
       )
+
+      if (!this.ipv6Available) {
+        matchingAccounts = matchingAccounts.filter((a) => {
+          if (this.store.activeIpv4Accounts.has(a.id)) return true
+          if (this.store.activeIpv4Accounts.size < 3) {
+            this.store.activeIpv4Accounts.add(a.id)
+            return true
+          }
+          return false
+        })
+      }
 
       if (matchingAccounts.length === 0) {
         this.reportTaskResult(task.id, '', false, 'All accounts already participated in this campaign')
@@ -294,7 +302,7 @@ export class WorkerService {
        userAgent: accountId ? this.store.getAccounts().find(a => a.id === accountId)?.userAgent || fingerprint.fingerprint.navigator.userAgent : fingerprint.fingerprint.navigator.userAgent,
        headless: isHeadless, // Đọc từ Cài đặt của người dùng
 
-       executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+       channel: 'chrome',
        args: [
          '--disable-gpu',
          '--no-sandbox',

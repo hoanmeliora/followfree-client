@@ -229,7 +229,7 @@ export class AutoRegService {
         // 2. Khởi tạo Trình duyệt Playwright Ẩn (Sử dụng Google Chrome THẬT thay vì Chromium)
         const browser = await chromium.launch({
             headless: false, // Hiển thị theo yêu cầu của sếp
-            executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+            channel: 'chrome',
             args: [
                 '--disable-gpu',
                 '--no-sandbox',

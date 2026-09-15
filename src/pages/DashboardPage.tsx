@@ -40,7 +40,7 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '' })
   const [passwordError, setPasswordError] = useState('')
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'accounts' | 'campaigns' | 'deposits' | 'emails' | 'autoreg' | 'autopost'>('dashboard')
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'accounts' | 'campaigns' | 'deposits' | 'emails' | 'autoreg' | 'autopost' | 'settings'>('dashboard')
   const [appSettings, setAppSettings] = useState({ runHeadless: false })
 
   const addLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {
@@ -257,7 +257,7 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
               onClick={() => setActiveTab('autoreg')}
               style={{ background: activeTab === 'autoreg' ? '' : 'rgba(233, 69, 96, 0.1)', color: activeTab === 'autoreg' ? '' : '#e94560' }}
             >
-              <span className="nav-icon">🤖</span> Cày Clone Tự Động
+              <span className="nav-icon">🤖</span> Tạo Tài Khoản
             </button>
             <button
               className={`nav-item ${activeTab === 'emails' ? 'active' : ''}`}
@@ -265,26 +265,15 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
             >
               <span className="nav-icon">📧</span> Nhận Email
             </button>
+            <button
+              className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
+              onClick={() => setActiveTab('settings')}
+            >
+              <span className="nav-icon">⚙️</span> Cài đặt ứng dụng
+            </button>
           </nav>
 
-          {/* App Settings */}
-          <div style={{ marginTop: 'auto', padding: '15px', background: 'var(--bg-secondary)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-            <div style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '10px' }}>⚙️ Cài đặt Ứng dụng</div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px' }}>
-              <input 
-                type="checkbox" 
-                checked={appSettings.runHeadless} 
-                onChange={toggleHeadless} 
-                style={{ width: '16px', height: '16px', accentColor: 'var(--accent)' }}
-              />
-              <span style={{ color: appSettings.runHeadless ? 'var(--accent-light)' : '#fff' }}>
-                Chạy ngầm (Ẩn Trình duyệt)
-              </span>
-            </label>
-            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px', lineHeight: '1.4' }}>
-              Bật để tiết kiệm RAM. Tắt để xem màn hình Live của Bot.
-            </div>
-          </div>
+          <div style={{ flex: 1 }}></div>
 
           {/* Logout */}
           <button className="logout-btn" onClick={onLogout}>⬅ Đăng xuất</button>
@@ -381,6 +370,39 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
 
           {activeTab === 'autopost' && (
             <AutoPostPage addLog={addLog} session={session} />
+          )}
+
+          {activeTab === 'settings' && (
+            <div className="accounts-section">
+              <div className="section-header">
+                <h2>Cài đặt ứng dụng</h2>
+                <p className="section-desc">Cấu hình các thông số hoạt động của FollowFree Desktop</p>
+              </div>
+
+              <div style={{ 
+                background: 'rgba(255,255,255,0.02)', 
+                padding: '24px', 
+                borderRadius: '12px', 
+                border: '1px solid var(--border)',
+                backdropFilter: 'blur(10px)',
+                marginTop: '20px'
+              }}>
+                <h3 style={{ fontSize: '14px', marginBottom: '16px', fontWeight: 400, color: 'var(--accent)' }}>Cấu hình Hiệu suất & Giao diện</h3>
+                
+                <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', padding: '12px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={appSettings.runHeadless} 
+                    onChange={toggleHeadless} 
+                    style={{ width: '18px', height: '18px', accentColor: 'var(--accent)' }}
+                  />
+                  <div>
+                    <div style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 400 }}>Chạy ngầm (Ẩn Trình duyệt Playwright)</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 300 }}>Khi bật tính năng này, bot sẽ chạy ẩn ở dưới nền giúp tiết kiệm RAM đáng kể. Tắt đi nếu bạn muốn xem trực tiếp màn hình bot đang tương tác.</div>
+                  </div>
+                </label>
+              </div>
+            </div>
           )}
         </main>
       </div>
@@ -541,7 +563,7 @@ function AccountsTab({ accountCount }: { accountCount: number }) {
               🚀 Thêm Gmail (Auto API)
             </button>
             <button className="add-btn" onClick={() => setShowAddForm(!showAddForm)}>
-              {showAddForm ? '✕ Hủy' : '+ Thêm MXH / Email'}
+              {showAddForm ? '✕ Hủy' : '+ Thêm tài khoản MXH'}
             </button>
           </div>
         </div>
@@ -557,7 +579,7 @@ function AccountsTab({ accountCount }: { accountCount: number }) {
           <div className="form-group" style={{ marginBottom: '20px', textAlign: 'left' }}>
             <label>Nền tảng</label>
             <select value={platform} onChange={(e) => setPlatform(e.target.value)} style={{ padding: '10px', width: '100%' }}>
-              {Object.keys(platformColors).filter(p => p !== 'GMAIL_OAUTH').map(p => <option key={p} value={p}>{p}</option>)}
+              {Object.keys(platformColors).filter(p => p !== 'GMAIL_OAUTH' && p !== 'GMAIL').map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </div>
 
@@ -1102,7 +1124,7 @@ export function DepositsTab({ onRefresh }: { onRefresh?: () => void }) {
 
       <div style={{ display: 'flex', gap: '30px', marginTop: '20px' }}>
         {/* Cột trái: QR Code */}
-        <div style={{ flex: 1, background: '#1c1c1c', padding: '20px', borderRadius: '12px', textAlign: 'center', border: '1px solid #333' }}>
+        <div style={{ flex: 1, background: 'rgba(255,255,255,0.02)', padding: '24px', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border)', backdropFilter: 'blur(10px)' }}>
           <h3 style={{ marginBottom: '15px', color: '#4caf50' }}>Quét mã QR để thanh toán</h3>
 
           <div style={{ marginBottom: '15px' }}>
@@ -1111,7 +1133,7 @@ export function DepositsTab({ onRefresh }: { onRefresh?: () => void }) {
               type="number"
               value={amount}
               onChange={e => setAmount(Number(e.target.value))}
-              style={{ width: '80%', padding: '10px', fontSize: '18px', textAlign: 'center', background: '#0a0a0a', border: '1px solid #555', color: '#fff', borderRadius: '6px' }}
+              style={{ width: '80%', padding: '12px', fontSize: '18px', textAlign: 'center', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', color: 'var(--text-primary)', borderRadius: '6px', outline: 'none' }}
               step="10000"
               min="10000"
             />
@@ -1127,28 +1149,28 @@ export function DepositsTab({ onRefresh }: { onRefresh?: () => void }) {
         </div>
 
         {/* Cột phải: Thông tin */}
-        <div style={{ flex: 1, background: '#1c1c1c', padding: '20px', borderRadius: '12px', border: '1px solid #333' }}>
+        <div style={{ flex: 1, background: 'rgba(255,255,255,0.02)', padding: '24px', borderRadius: '12px', border: '1px solid var(--border)', backdropFilter: 'blur(10px)' }}>
           <h3 style={{ marginBottom: '15px' }}>Thông tin chuyển khoản</h3>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-            <div style={{ background: '#0a0a0a', padding: '12px', borderRadius: '8px' }}>
-              <div style={{ color: '#888', fontSize: '13px', marginBottom: '4px' }}>Ngân hàng</div>
-              <div style={{ fontSize: '16px', fontWeight: 'bold' }}>{depositInfo.bankId}</div>
+            <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '4px' }}>Ngân hàng</div>
+              <div style={{ fontSize: '16px', fontWeight: '400' }}>{depositInfo.bankId}</div>
             </div>
 
-            <div style={{ background: '#0a0a0a', padding: '12px', borderRadius: '8px' }}>
-              <div style={{ color: '#888', fontSize: '13px', marginBottom: '4px' }}>Chủ tài khoản</div>
-              <div style={{ fontSize: '16px', fontWeight: 'bold' }}>{depositInfo.accountName}</div>
+            <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '4px' }}>Chủ tài khoản</div>
+              <div style={{ fontSize: '16px', fontWeight: '400' }}>{depositInfo.accountName}</div>
             </div>
 
-            <div style={{ background: '#0a0a0a', padding: '12px', borderRadius: '8px' }}>
-              <div style={{ color: '#888', fontSize: '13px', marginBottom: '4px' }}>Số tài khoản</div>
-              <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#4caf50' }}>{depositInfo.accountNo}</div>
+            <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '4px' }}>Số tài khoản</div>
+              <div style={{ fontSize: '16px', fontWeight: '600', color: '#4caf50' }}>{depositInfo.accountNo}</div>
             </div>
 
-            <div style={{ background: '#0a0a0a', padding: '12px', borderRadius: '8px', border: '1px solid #ffd700' }}>
-              <div style={{ color: '#888', fontSize: '13px', marginBottom: '4px' }}>Nội dung chuyển khoản (Bắt buộc)</div>
-              <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#ffd700' }}>{depositInfo.syntax}</div>
+            <div style={{ background: 'rgba(212,175,55,0.05)', padding: '12px', borderRadius: '8px', border: '1px solid var(--accent)' }}>
+              <div style={{ color: 'var(--accent)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '4px' }}>Nội dung chuyển khoản (Bắt buộc)</div>
+              <div style={{ fontSize: '18px', fontWeight: '400', color: 'var(--accent)' }}>{depositInfo.syntax}</div>
             </div>
           </div>
 

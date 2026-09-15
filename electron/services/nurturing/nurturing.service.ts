@@ -40,8 +40,19 @@ export class NurturingService {
   public async performIdleNurturing(): Promise<boolean> {
     if (this.isNurturing) return false
 
-    const activeAccounts = this.store.getAccounts().filter(a => a.status === 'ACTIVE')
+    let activeAccounts = this.store.getAccounts().filter(a => a.status === 'ACTIVE')
     if (activeAccounts.length === 0) return false
+
+    if (!this.ipv6Service.isAvailable) {
+      activeAccounts = activeAccounts.filter((a) => {
+        if (this.store.activeIpv4Accounts.has(a.id)) return true
+        if (this.store.activeIpv4Accounts.size < 3) {
+          this.store.activeIpv4Accounts.add(a.id)
+          return true
+        }
+        return false
+      })
+    }
 
     const now = Date.now()
     const accountToNurture = activeAccounts.find(acc => {
