@@ -41,7 +41,22 @@ export class LocalProxyService {
   }
 
   start(port = 8888) {
+    if (this.server.listening) {
+      if (this.port === port) {
+        console.log(`✅ Local Proxy already listening on 127.0.0.1:${this.port}`)
+        return;
+      }
+      this.stop();
+    }
     this.port = port
+    
+    // Bắt lỗi EADDRINUSE nếu cổng đang bị ứng dụng khác chiếm dụng
+    this.server.once('error', (err: any) => {
+      if (err.code === 'EADDRINUSE') {
+        console.warn(`⚠️ Cổng ${this.port} đang bị chiếm dụng bởi ứng dụng khác.`)
+      }
+    });
+
     this.server.listen(this.port, '127.0.0.1', () => {
       console.log(`✅ Local Proxy listening on 127.0.0.1:${this.port}`)
     })
@@ -53,6 +68,8 @@ export class LocalProxyService {
   }
 
   stop() {
-    this.server.close()
+    if (this.server.listening) {
+      this.server.close()
+    }
   }
 }
