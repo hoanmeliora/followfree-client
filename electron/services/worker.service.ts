@@ -191,8 +191,17 @@ export class WorkerService {
     if (!this.running || this.currentTask || this.taskQueue.length === 0) return
     const task = this.taskQueue.shift()!
 
+    // FIX #1: Nếu không có IPv6 VÀ không có proxy → từ chối task để bảo vệ tài khoản
+    // Không được dùng IP thật vì 1 IP thật cày nhiều nick → bị Checkpoint hàng loạt
     if (!this.ipv6Available) {
       console.warn('[Worker] 🚨 Mạng không có IPv6 - Bật chế độ giới hạn 3 tài khoản luân phiên')
+      const allowedCount = this.store.activeIpv4Accounts.size
+      if (allowedCount >= 3) {
+        console.warn('[Worker] 🛑 Đã đủ 3 tài khoản IPv4, bỏ qua task để bảo vệ.')
+        this.reportTaskResult(task.id, '', false, 'Mạng không có IPv6: Giới hạn 3 tài khoản luân phiên đã đầy')
+        this.finishTask()
+        return
+      }
     }
 
     const executor = this.executorRegistry.get(task.campaign.platform)
@@ -283,8 +292,14 @@ export class WorkerService {
     const { FingerprintInjector } = require('fingerprint-injector');
     const { app } = require('electron');
     const path = require('path');
+    const fs = require('fs');
     
     const profilePath = path.join(app.getPath('userData'), 'profiles', accountId);
+    
+    // FIX #4: Đảm bảo thư mục profile tồn tại trước khi Playwright dùng (Windows cần mkdir explicit)
+    if (!fs.existsSync(profilePath)) {
+      fs.mkdirSync(profilePath, { recursive: true });
+    }
 
     const fingerprintGenerator = new FingerprintGenerator({
         browsers: [{ name: 'chrome', minVersion: 110 }],
@@ -297,12 +312,12 @@ export class WorkerService {
     const settings = this.store.getSettings();
     const isHeadless = settings?.runHeadless ?? false;
 
+    // FIX #3: headless phải nằm trực tiếp trong options của launchPersistentContext
     const contextOptions: any = {
+       headless: isHeadless,
        colorScheme: 'dark',
        viewport: { width: 1280, height: 800 },
        userAgent: accountId ? this.store.getAccounts().find(a => a.id === accountId)?.userAgent || fingerprint.fingerprint.navigator.userAgent : fingerprint.fingerprint.navigator.userAgent,
-       headless: isHeadless, // Đọc từ Cài đặt của người dùng
-
        channel: 'chrome',
        args: [
          '--disable-gpu',
@@ -410,7 +425,9 @@ export class WorkerService {
 
       return result
     } finally {
-      await context.browser()?.close()
+      // FIX #2: Với launchPersistentContext, context IS the browser → phải dùng context.close()
+      // context.browser()?.close() sẽ trả về null và browser không bao giờ đóng gây memory leak
+      await context.close().catch(() => {})
     }
   }
 

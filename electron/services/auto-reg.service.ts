@@ -220,9 +220,11 @@ export class AutoRegService {
                     await new Promise(r => setTimeout(r, 2000));
                     proxyUrl = 'http://127.0.0.1:8889';
                     this.log(`[Auto-Reg] Đã gán IPv6 tàng hình thành công: ${randomIpv6}`);
+                } else {
+                    throw new Error("Không thể bind IPv6, mạng không hỗ trợ");
                 }
             } catch (e: any) {
-                throw new Error(`Để bảo vệ tài khoản, Tool từ chối mở trình duyệt vì Wifi của ngài không có sóng IPv6. Hãy nhập Proxy ngoài hoặc đổi sang mạng có IPv6.`);
+                throw new Error(`Để bảo vệ tài khoản, Tool từ chối tạo nick bằng IP thật (do mạng Ethernet/Wifi của sếp không có IPv6). IP thật tạo nick sẽ bị Checkpoint ngay lập tức! Vui lòng nhập Proxy ngoài hoặc đổi sang mạng 4G/Wifi có IPv6.`);
             }
         }
 
