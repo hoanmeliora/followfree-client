@@ -5,9 +5,14 @@ const AutoRegPage: React.FC<{ goToAccounts?: () => void }> = ({ goToAccounts }) 
     const saved = localStorage.getItem('autoreg_domain');
     return saved === 'hethongcaynicksieutoc.com' ? '' : (saved || '');
   });
-  const [count, setCount] = useState(() => Number(localStorage.getItem('autoreg_count')) || 10);
-// ... Skipping unmodified lines to target just the button below ...
-  const [delay, setDelay] = useState(() => Number(localStorage.getItem('autoreg_delay')) || 30);
+  const [count, setCount] = useState(() => {
+    const saved = localStorage.getItem('autoreg_count');
+    return saved ? Number(saved) : 2;
+  });
+  const [delay, setDelay] = useState(() => {
+    const saved = localStorage.getItem('autoreg_delay');
+    return saved ? Number(saved) : 60;
+  });
   const [proxy, setProxy] = useState(() => localStorage.getItem('autoreg_proxy') || '');
   const [platform, setPlatform] = useState(() => localStorage.getItem('autoreg_platform') || 'facebook');
   

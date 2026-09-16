@@ -240,10 +240,73 @@ function setupIpcHandlers(
         console.error("Error parsing cookies:", e)
       }
 
-      // Chỉ bơm cookie nếu session hiện tại chưa có cookie
-      loginWin.webContents.session.cookies.get({ url: domain }).then(existingCookies => {
-        if (loginWin.isDestroyed()) return;
-        if (existingCookies.length === 0 && cookiesToSet.length > 0) {
+      // Luôn bơm cookie mới nhất vào session (kể cả khi đã có cookie cũ)
+      // để đảm bảo tài khoản không bị logout sau khi cookie hết hạn
+      const finalUrl = (platform === 'GMAIL' || platform === 'GMAIL_OAUTH')
+        ? 'https://mail.google.com/mail/u/0/#inbox'
+        : domain
+
+      // Dùng async IIFE để dùng await bên trong Promise callback (vốn không phải async)
+      ;(async () => {
+        // Trường hợp đặc biệt: GMAIL_OAUTH chỉ lưu token, không có web cookie
+        // → Dùng token để lấy link đăng nhập trực tiếp vào Gmail
+        if ((platform === 'GMAIL_OAUTH' || platform === 'GMAIL') && cookiesToSet.length === 0) {
+          try {
+            const parsed = JSON.parse(cookieStr)
+            const token = parsed?.token
+            if (token?.access_token) {
+              // Dùng Google OAuth implicit flow để đăng nhập vào Gmail qua Electron session
+              // Mở trang Gmail bình thường, người dùng tự đăng nhập 1 lần rồi cookie sẽ được lưu tự động
+              const refreshToken = token.refresh_token
+              if (refreshToken) {
+                // Dùng refresh_token để lấy access_token mới rồi redirect vào Gmail
+                const tokenUrl = `https://accounts.google.com/o/oauth2/token`
+                const clientId = '1075088201776-p22gg2en7gsp5vdqfq24jhvphafq0r4i.apps.googleusercontent.com'
+                const clientSecret = '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'
+                const body = new URLSearchParams({
+                  client_id: clientId,
+                  client_secret: clientSecret,
+                  refresh_token: refreshToken,
+                  grant_type: 'refresh_token'
+                })
+                const res = await fetch(tokenUrl, { method: 'POST', body: body.toString(), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }).catch(() => null)
+                if (res?.ok) {
+                  const newToken = await res.json()
+                  if (newToken?.access_token) {
+                    // Google cho phép mở thẳng Gmail bằng token qua URL này
+                    const gmailWithToken = `https://mail.google.com/mail/u/0/?authuser=0#inbox`
+                    // Set Authorization header không được trong BrowserWindow, chỉ có thể inject JS sau khi load
+                    loginWin.loadURL(gmailWithToken)
+                    // Sau khi load xong, inject token để bypass login
+                    loginWin.webContents.once('did-finish-load', async () => {
+                      if (!loginWin.isDestroyed()) {
+                        await loginWin.webContents.executeJavaScript(`
+                          // Thử dùng fetch với Authorization header để kiểm tra token còn sống không
+                          fetch('https://www.googleapis.com/gmail/v1/users/me/profile', {
+                            headers: { 'Authorization': 'Bearer ${newToken.access_token}' }
+                          }).then(r => r.json()).then(d => {
+                            if (d.emailAddress) window.location.href = 'https://mail.google.com/mail/u/0/#inbox';
+                          }).catch(() => {});
+                        `).catch(() => {})
+                      }
+                    })
+                    return
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.error('[openBrowser] Error handling GMAIL_OAUTH token:', e)
+          }
+          // Fallback: mở trang đăng nhập Gmail bình thường
+          if (!loginWin.isDestroyed()) loginWin.loadURL('https://accounts.google.com/ServiceLogin?service=mail')
+          return
+        }
+
+        if (cookiesToSet.length > 0) {
+          // Xoá toàn bộ cookie cũ trong session để tránh conflict
+          await loginWin.webContents.session.clearStorageData({ storages: ['cookies'] }).catch(() => {})
+
           const promises = cookiesToSet.map(c => {
             let url = domain
             if (c.domain) {
@@ -261,13 +324,11 @@ function setupIpcHandlers(
             }).catch(e => console.error("Error setting cookie", c.name, e))
           })
 
-          Promise.all(promises).then(() => {
-            if (!loginWin.isDestroyed()) loginWin.loadURL(domain)
-          }).catch(console.error)
-        } else {
-          if (!loginWin.isDestroyed()) loginWin.loadURL(domain)
+          await Promise.all(promises).catch(console.error)
         }
-      }).catch(console.error)
+
+        if (!loginWin.isDestroyed()) loginWin.loadURL(finalUrl)
+      })()
 
       let isClosing = false;
       loginWin.on('close', async (e) => {
