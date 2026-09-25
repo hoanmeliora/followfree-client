@@ -353,11 +353,17 @@ export class WorkerService {
   ): Promise<boolean | string> {
     let bound = false
     try {
-      const fixedIp = this.ipv6Service.generateFixedIpv6ForAccount(account.id)
-      bound = await this.ipv6Service.bindIpToSystem(fixedIp)
-      if (bound) {
-        this.localProxyService.setBindIp(fixedIp)
-        await new Promise(r => setTimeout(r, 3000))
+      if (this.ipv6Available) {
+        const fixedIp = this.ipv6Service.generateFixedIpv6ForAccount(account.id)
+        if (fixedIp) {
+          bound = await this.ipv6Service.bindIpToSystem(fixedIp)
+          if (bound) {
+            this.localProxyService.setBindIp(fixedIp)
+            await new Promise(r => setTimeout(r, 3000))
+          } else {
+            this.localProxyService.setBindIp(null)
+          }
+        }
       } else {
         this.localProxyService.setBindIp(null)
       }

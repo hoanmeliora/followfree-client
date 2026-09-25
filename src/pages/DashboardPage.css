@@ -117,11 +117,6 @@
   min-height: 0;
 }
 
-/* Fix lỗi không scroll được do flex shrink các thẻ con (Accounts Tab, Campaign Tab bị kẹt) */
-.main-content > * {
-  flex-shrink: 0;
-}
-
 /* Status Banner */
 .status-banner {
   display: flex; align-items: center; gap: 12px;
@@ -220,7 +215,12 @@
 .log-entry.info .log-msg { color: var(--text-secondary); }
 
 /* Accounts Tab */
-.accounts-section { display: flex; flex-direction: column; gap: 20px; }
+.accounts-section { 
+  display: flex; 
+  flex-direction: column; 
+  gap: 20px; 
+  flex-shrink: 0; /* Fix lỗi không scroll được do container bị bóp méo */
+}
 .section-header h2 { font-size: 18px; font-weight: 300; letter-spacing: 0.05em; }
 .section-desc { font-size: 12px; font-weight: 300; color: var(--text-muted); margin-top: 4px; }
 

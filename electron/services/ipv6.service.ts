@@ -54,6 +54,7 @@ export class Ipv6Service {
       const isRoutable = await this.checkIpv6Connectivity()
       if (!isRoutable) {
         console.warn(`[IPv6] ⚠️ Prefix ${prefix} là ảo/stale! Không thể truy cập Internet IPv6.`)
+        this.basePrefix = ''
         return null
       }
 

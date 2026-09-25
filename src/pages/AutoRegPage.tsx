@@ -189,9 +189,9 @@ const AutoRegPage: React.FC<{ goToAccounts?: () => void }> = ({ goToAccounts }) 
   };
 
   return (
-    <div style={{ display: 'flex', gap: '20px', height: '100%' }}>
+    <div style={{ display: 'flex', gap: '20px' }}>
       {/* CỘT TRÁI: CẤU HÌNH */}
-      <div style={{ flex: 1, background: '#0f3460', padding: '30px', borderRadius: '8px', overflowY: 'auto' }}>
+      <div style={{ flex: 1, background: '#0f3460', padding: '30px', borderRadius: '8px' }}>
         <h2 style={{ marginTop: 0, color: '#e94560', borderBottom: '1px solid #1a1a2e', paddingBottom: '10px' }}>⚙️ Cấu Hình Đăng Ký</h2>
         
         <div style={{ marginBottom: '15px' }}>

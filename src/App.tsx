@@ -71,6 +71,17 @@ function App() {
       setSession(saved)
       setLoading(false)
     })
+
+    const handleAuthExpired = async () => {
+      alert('Phiên đăng nhập đã hết hạn (hoặc máy chủ yêu cầu đăng nhập lại). Vui lòng đăng nhập lại!')
+      await window.electronAPI?.logout()
+      setSession(null)
+    }
+
+    window.electronAPI?.on('auth:expired', handleAuthExpired)
+    return () => {
+      window.electronAPI?.off('auth:expired', handleAuthExpired)
+    }
   }, [])
 
   const handleLogin = (newSession: Session) => setSession(newSession)

@@ -29,9 +29,26 @@ import { DepositService } from './services/deposit.service'
 import { EmailService } from './services/email.service'
 import { AutoRegService } from './services/auto-reg.service'
 import { PageFarmService } from './services/page-farm.service'
+import axios from 'axios'
 
 const isDev = process.env.NODE_ENV === 'development'
 let mainWindow: BrowserWindow | null = null
+
+// Global 401 interceptor
+axios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      const url = error.config?.url || '';
+      if (!url.includes('/auth/login') && !url.includes('/auth/register')) {
+        if (mainWindow) {
+          mainWindow.webContents.send('auth:expired')
+        }
+      }
+    }
+    return Promise.reject(error)
+  }
+)
 let tray: Tray | null = null
 let workerService: WorkerService | null = null
 let emailService: EmailService | null = null
@@ -304,24 +321,31 @@ function setupIpcHandlers(
         }
 
         if (cookiesToSet.length > 0) {
-          // Xoá toàn bộ cookie cũ trong session để tránh conflict
-          await loginWin.webContents.session.clearStorageData({ storages: ['cookies'] }).catch(() => {})
-
           const promises = cookiesToSet.map(c => {
             let url = domain
             if (c.domain) {
               url = c.domain.startsWith('.') ? `https://www${c.domain}` : `https://${c.domain}`
             }
-            return loginWin.webContents.session.cookies.set({
+            
+            const cookieDetails: any = {
               url: url,
               name: c.name,
               value: c.value,
-              domain: c.domain,
               path: c.path || '/',
-              secure: c.secure || true,
+              secure: c.secure !== undefined ? c.secure : true,
               httpOnly: c.httpOnly || false,
               sameSite: c.sameSite === 'no_restriction' ? 'no_restriction' : 'unspecified'
-            }).catch(e => console.error("Error setting cookie", c.name, e))
+            }
+
+            // __Host- cookies MUST NOT have a domain attribute, and MUST have path '/'
+            if (c.name.startsWith('__Host-')) {
+               cookieDetails.path = '/';
+            } else if (c.domain) {
+               cookieDetails.domain = c.domain;
+            }
+
+            return loginWin.webContents.session.cookies.set(cookieDetails)
+              .catch(e => console.error("Error setting cookie", c.name, e))
           })
 
           await Promise.all(promises).catch(console.error)
@@ -338,7 +362,8 @@ function setupIpcHandlers(
         
         try {
           // 1. Thu thập cookie mới nhất từ session của cửa sổ TRƯỚC KHI bị đóng
-          const freshCookies = await loginWin.webContents.session.cookies.get({ url: domain })
+          // get({}) lấy TẤT CẢ cookie của mọi domain (quan trọng với Google vì có cả accounts.google.com và mail.google.com)
+          const freshCookies = await loginWin.webContents.session.cookies.get({})
           if (freshCookies.length === 0) {
             loginWin.destroy();
             resolve({ success: true })
@@ -428,7 +453,7 @@ function setupIpcHandlers(
         }
         
         try {
-          const cookies = await loginWin.webContents.session.cookies.get({ url: domain })
+          const cookies = await loginWin.webContents.session.cookies.get({})
           const cookieNames = cookies.map(c => c.name)
           
           // Facebook uses c_user, TikTok uses sessionid, Google uses SID/HSID

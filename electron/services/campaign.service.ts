@@ -24,7 +24,10 @@ export class CampaignService {
       return { success: true, data: res.data }
     } catch (err: any) {
       // Axios error
-      const message = err.response?.data?.message ?? 'Lỗi kết nối đến máy chủ. Vui lòng thử lại.'
+      let message = err.response?.data?.message ?? 'Lỗi kết nối đến máy chủ. Vui lòng thử lại.'
+      if (message === 'Unauthorized' || err.response?.status === 401) {
+        message = 'Phiên đăng nhập hết hạn. Vui lòng Đăng Xuất và Đăng Nhập Lại!'
+      }
       return { success: false, error: message }
     }
   }
@@ -43,7 +46,10 @@ export class CampaignService {
       const res = await axios.delete(`${SERVER_URL}/campaigns/${id}`, { headers: this.getHeaders() })
       return { success: true, data: res.data }
     } catch (err: any) {
-      const message = err.response?.data?.message ?? 'Lỗi kết nối đến máy chủ.'
+      let message = err.response?.data?.message ?? 'Lỗi kết nối đến máy chủ.'
+      if (message === 'Unauthorized' || err.response?.status === 401) {
+        message = 'Phiên đăng nhập hết hạn. Vui lòng Đăng Xuất và Đăng Nhập Lại!'
+      }
       return { success: false, error: message }
     }
   }

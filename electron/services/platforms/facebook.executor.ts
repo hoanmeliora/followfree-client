@@ -462,7 +462,8 @@ export class FacebookExecutor implements IPlatformExecutor {
             
             for (const selector of likeSelectors) {
                 try {
-                    const target = containerLocator.locator(selector).nth(-1); // Lấy nút cuối cùng trong container
+                    // Sửa lỗi: Lấy nút Like ĐẦU TIÊN (của bài viết chính), thay vì nút Cuối cùng (của bình luận)
+                    const target = containerLocator.locator(selector).first(); 
                     const isVisible = await target.isVisible();
                     if (isVisible) {
                         await target.scrollIntoViewIfNeeded();

@@ -23,7 +23,10 @@ export class DepositService {
       res.data.accountName = 'VNVM GROUP';
       return { success: true, data: res.data }
     } catch (err: any) {
-      const message = err.response?.data?.message ?? 'Không lấy được thông tin nạp tiền'
+      let message = err.response?.data?.message ?? 'Không lấy được thông tin nạp tiền'
+      if (message === 'Unauthorized' || err.response?.status === 401) {
+        message = 'Phiên đăng nhập hết hạn. Vui lòng Đăng Xuất và Đăng Nhập Lại!'
+      }
       return { success: false, error: message }
     }
   }
