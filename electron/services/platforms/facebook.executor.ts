@@ -810,7 +810,7 @@ export class FacebookExecutor implements IPlatformExecutor {
                     await box.click();
                     await this.automationService.wait(500);
                     // Dùng type thay vì insertText để giả lập gõ phím từng chữ (tránh lỗi React DraftJS của FB không nhận diện được chữ dẫn tới lỗi đăng)
-                    await page.keyboard.type(contentStr, { delay: 15 });
+                    await page.keyboard.insertText(contentStr);
                     await this.automationService.wait(2000);
                     typed = true;
                     break;
@@ -966,208 +966,209 @@ export class FacebookExecutor implements IPlatformExecutor {
       console.log(`[Facebook] Debug campaignMeta:`, JSON.stringify(campaignMeta));
       console.log(`[Facebook] Debug postData:`, JSON.stringify(postData));
 
-      let state = this.accountPageState[accountId];
-      if (!state || state.mainAccountName !== null) { // Nếu state chưa khởi tạo hoặc đang là thông tin của lô trước
-          state = { mainAccountName: null, pageIndex: 0, tasksDone: 0, maxTasks: groups.length };
-          this.accountPageState[accountId] = state;
-      }
+      let postsThisSession = 0;
+      const MAX_POSTS_PER_SESSION = 3;
 
-      const currentIndex = state.tasksDone;
-      if (currentIndex >= groups.length) {
-          console.log('[Facebook] Đã hoàn thành hết số lượng nhóm trong kịch bản POST_GROUP.');
-          return true;
-      }
+      while (postsThisSession < MAX_POSTS_PER_SESSION) {
+          let state = this.accountPageState[accountId];
+          if (!state || state.mainAccountName !== null) { 
+              state = { mainAccountName: null, pageIndex: 0, tasksDone: 0, maxTasks: groups.length };
+              this.accountPageState[accountId] = state;
+          }
 
-      let rawGroup = groups[currentIndex];
-      let groupUrl = rawGroup;
-      if (!rawGroup.includes('facebook.com')) {
-         groupUrl = `https://www.facebook.com/groups/${rawGroup}`;
-      }
-
-      console.log(`[Facebook] Đang vào nhóm để đăng bài: ${groupUrl}`);
-      await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
-      await this.automationService.wait(4000);
-
-      // --- KIỂM TRA & TỰ ĐỘNG THAM GIA NHÓM ---
-      const membershipState = await page.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll('div[role="button"]'));
-        for (const btn of btns) {
-          const aria = btn.getAttribute('aria-label') || '';
-          if (aria === 'Đã tham gia' || aria === 'Joined') return 'JOINED';
-          if (aria === 'Hủy yêu cầu' || aria === 'Cancel request') return 'PENDING';
-          if (aria === 'Tham gia nhóm' || aria === 'Join Group') return 'NOT_JOINED';
-        }
-        return 'UNKNOWN';
-      });
-
-      if (membershipState === 'PENDING') {
-        console.log('[Facebook] Nhóm đang chờ phê duyệt, bỏ qua...');
-        return false;
-      }
-
-      if (membershipState === 'NOT_JOINED' || membershipState === 'UNKNOWN') {
-        console.log('[Facebook] Có vẻ chưa tham gia nhóm. Thử bấm Tham gia...');
-        const clickedJoin = await page.evaluate(() => {
-          const btns = Array.from(document.querySelectorAll('div[role="button"], span[role="button"], [aria-label]'));
-          for (const btn of btns) {
-            const aria = btn.getAttribute('aria-label') || '';
-            if (aria === 'Tham gia nhóm' || aria === 'Join Group') {
-              (btn as HTMLElement).click();
+          const currentIndex = state.tasksDone;
+          if (currentIndex >= groups.length) {
+              console.log('[Facebook] Đã hoàn thành hết số lượng nhóm trong kịch bản POST_GROUP.');
               return true;
+          }
+
+          let rawGroup = groups[currentIndex];
+          let groupUrl = rawGroup;
+          if (!rawGroup.includes('facebook.com')) {
+             groupUrl = `https://www.facebook.com/groups/${rawGroup}`;
+          }
+
+          console.log(`[Facebook] [${postsThisSession + 1}/${MAX_POSTS_PER_SESSION}] Đang vào nhóm để đăng bài: ${groupUrl}`);
+          await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
+          await this.automationService.wait(4000);
+
+          // --- KIỂM TRA & TỰ ĐỘNG THAM GIA NHÓM ---
+          const membershipState = await page.evaluate(() => {
+            const btns = Array.from(document.querySelectorAll('div[role="button"]'));
+            for (const btn of btns) {
+              const aria = btn.getAttribute('aria-label') || '';
+              if (aria === 'Đã tham gia' || aria === 'Joined') return 'JOINED';
+              if (aria === 'Hủy yêu cầu' || aria === 'Cancel request') return 'PENDING';
+              if (aria === 'Tham gia nhóm' || aria === 'Join Group') return 'NOT_JOINED';
             }
+            return 'UNKNOWN';
+          });
+
+          if (membershipState === 'PENDING') {
+            console.log('[Facebook] Nhóm đang chờ phê duyệt, bỏ qua...');
+            state.tasksDone++;
+            continue;
           }
-          return false;
-        });
 
-        if (clickedJoin) {
-          console.log('[Facebook] Đã bấm Tham gia nhóm. Chờ modal câu hỏi (nếu có)...');
-          await this.automationService.wait(3000);
-          
-          const hasModal = await page.$('div[aria-label="Trả lời câu hỏi"]');
-          if (hasModal) {
-             console.log('[Facebook] Nhóm yêu cầu trả lời câu hỏi. Thử tick bừa...');
-             // Chọn tất cả các radio / checkbox
-             const options = await page.$$('div[role="checkbox"], div[role="radio"]');
-             if (options.length > 0) {
-                 await options[0].click(); // Click bừa cái đầu tiên
-             }
-             // Điền bừa text
-             const textareas = await page.$$('textarea');
-             for (const ta of textareas) {
-               await ta.fill('Đồng ý');
-             }
-             await this.automationService.simulateHumanClick(page, 'div[aria-label="Gửi"], div[aria-label="Submit"]');
-          }
-          console.log('[Facebook] Xử lý xong Tham gia nhóm. Sẽ thử đăng bài ngay (nếu nhóm cho phép đăng không cần duyệt)...');
-          await this.automationService.wait(3000);
-        }
-      } else {
-        console.log('[Facebook] Xác nhận đã là thành viên của Nhóm!');
-      }
-      // --- KẾT THÚC AUTO-JOIN ---
+          if (membershipState === 'NOT_JOINED' || membershipState === 'UNKNOWN') {
+            console.log('[Facebook] Có vẻ chưa tham gia nhóm. Thử bấm Tham gia...');
+            const clickedJoin = await page.evaluate(() => {
+              const btns = Array.from(document.querySelectorAll('div[role="button"], span[role="button"], [aria-label]'));
+              for (const btn of btns) {
+                const aria = btn.getAttribute('aria-label') || '';
+                if (aria === 'Tham gia nhóm' || aria === 'Join Group') {
+                  (btn as HTMLElement).click();
+                  return true;
+                }
+              }
+              return false;
+            });
 
-      // Tìm nút "Bạn viết gì đi", "Write something", "Tạo bài viết công khai"...
-      const postBoxSelectors = [
-          'div[role="button"]:has-text("Bạn viết gì đi")',
-          'div[role="button"]:has-text("Write something")',
-          'div[role="button"]:has-text("Tạo bài viết công khai")',
-          'div[role="button"]:has-text("Create a public post")',
-          'div.x1i10hfl.x6umtig.x1b1mbwd.xaqea5y.xav7gou.x9f619.x1ypdohk:has-text("Bạn viết gì đi")'
-      ];
-
-      let clickedBox = false;
-      for (const sel of postBoxSelectors) {
-          if (await this.automationService.simulateHumanClick(page, sel)) {
-              clickedBox = true;
-              break;
-          }
-      }
-
-      if (!clickedBox) {
-          // Thử dò tìm thẻ span có chứa chữ "viết gì đi" và click vào parent
-          const boxText = page.locator('span').filter({ hasText: /viết gì đi|write something|tạo bài viết/i }).first();
-          if (await boxText.isVisible()) {
-              await boxText.click();
-              clickedBox = true;
-          }
-      }
-
-      if (!clickedBox) {
-          console.error('[Facebook] Không tìm thấy ô đăng bài trong nhóm. Có thể nhóm đóng hoặc bị cấm đăng.');
-          return false;
-      }
-
-      await this.automationService.wait(2000);
-
-      // Tìm ô textarea hoặc the contenteditable
-      console.log('[Facebook] Đang dò tìm vùng nhập văn bản (Editor)...');
-      let editorLoc = page.locator('div[role="dialog"] div[role="textbox"][contenteditable="true"]').first();
-      
-      if (!await editorLoc.isVisible()) {
-          editorLoc = page.locator('div[role="textbox"][contenteditable="true"]').last();
-      }
-
-      if (await editorLoc.isVisible()) {
-          // Bấm vào để focus
-          await editorLoc.click();
-          await this.automationService.wait(1000);
-          
-          console.log('[Facebook] Bắt đầu gõ nội dung bài đăng...');
-          // Gõ nội dung (Sử dụng API điền từng chữ để qua mặt hệ thống bot detection)
-          await editorLoc.type(content || ' ', { delay: 50 });
-          await this.automationService.wait(2000);
-      } else {
-          console.error('[Facebook] Không tìm thấy vùng nhập văn bản (Editor).');
-          return false;
-      }
-
-      // Đính kèm ảnh nếu có
-      if (imageUrls && imageUrls.length > 0) {
-          console.log(`[Facebook] Đang đính kèm ${imageUrls.length} ảnh...`);
-          // Tìm nút Thêm ảnh/video (có thể có nhiều label khác nhau tuỳ giao diện)
-          const addPhotoBtn = page.locator('div[aria-label*="Ảnh/video"], div[aria-label*="Photo/video"], div[aria-label*="Thêm ảnh"], div[aria-label*="Thêm ảnh/video"]').filter({ has: page.locator('i') }).first();
-          
-          if (await addPhotoBtn.isVisible().catch(() => false)) {
-              console.log('[Facebook] Đã tìm thấy nút Thêm Ảnh/Video, tiến hành click...');
-              const [fileChooser] = await Promise.all([
-                page.waitForEvent('filechooser', { timeout: 10000 }).catch(() => null),
-                addPhotoBtn.click({ force: true })
-              ]);
+            if (clickedJoin) {
+              console.log('[Facebook] Đã bấm Tham gia nhóm. Chờ modal câu hỏi (nếu có)...');
+              await this.automationService.wait(3000);
               
-              if (fileChooser) {
-                  await fileChooser.setFiles(imageUrls);
-                  console.log('[Facebook] Upload ảnh thành công thông qua FileChooser.');
+              const hasModal = await page.$('div[aria-label="Trả lời câu hỏi"]');
+              if (hasModal) {
+                 console.log('[Facebook] Nhóm yêu cầu trả lời câu hỏi. Thử tick bừa...');
+                 const options = await page.$$('div[role="checkbox"], div[role="radio"]');
+                 if (options.length > 0) {
+                     await options[0].click(); 
+                 }
+                 const textareas = await page.$$('textarea');
+                 for (const ta of textareas) {
+                   await ta.fill('Đồng ý');
+                 }
+                 await this.automationService.simulateHumanClick(page, 'div[aria-label="Gửi"], div[aria-label="Submit"]');
+              }
+              console.log('[Facebook] Xử lý xong Tham gia nhóm. Sẽ thử đăng bài ngay (nếu nhóm cho phép đăng không cần duyệt)...');
+              await this.automationService.wait(3000);
+            }
+          } else {
+            console.log('[Facebook] Xác nhận đã là thành viên của Nhóm!');
+          }
+
+          const postBoxSelectors = [
+              'div[role="button"]:has-text("Bạn viết gì đi")',
+              'div[role="button"]:has-text("Write something")',
+              'div[role="button"]:has-text("Tạo bài viết công khai")',
+              'div[role="button"]:has-text("Create a public post")',
+              'div.x1i10hfl.x6umtig.x1b1mbwd.xaqea5y.xav7gou.x9f619.x1ypdohk:has-text("Bạn viết gì đi")'
+          ];
+
+          let clickedBox = false;
+          for (const sel of postBoxSelectors) {
+              if (await this.automationService.simulateHumanClick(page, sel)) {
+                  clickedBox = true;
+                  break;
+              }
+          }
+
+          if (!clickedBox) {
+              const boxText = page.locator('span').filter({ hasText: /viết gì đi|write something|tạo bài viết/i }).first();
+              if (await boxText.isVisible()) {
+                  await boxText.click();
+                  clickedBox = true;
+              }
+          }
+
+          if (!clickedBox) {
+              console.error('[Facebook] Không tìm thấy ô đăng bài trong nhóm. Có thể nhóm đóng hoặc bị cấm đăng. Bỏ qua nhóm này...');
+              state.tasksDone++;
+              continue;
+          }
+
+          await this.automationService.wait(2000);
+
+          console.log('[Facebook] Đang dò tìm vùng nhập văn bản (Editor)...');
+          let editorLoc = page.locator('div[role="dialog"] div[role="textbox"][contenteditable="true"]').first();
+          
+          if (!await editorLoc.isVisible()) {
+              editorLoc = page.locator('div[role="textbox"][contenteditable="true"]').last();
+          }
+
+          if (await editorLoc.isVisible()) {
+              await editorLoc.click();
+              await this.automationService.wait(1000);
+              
+              console.log('[Facebook] Bắt đầu gõ nội dung bài đăng...');
+              await editorLoc.fill(content || ' ');
+              await this.automationService.wait(2000);
+          } else {
+              console.error('[Facebook] Không tìm thấy vùng nhập văn bản (Editor). Bỏ qua nhóm này...');
+              state.tasksDone++;
+              continue;
+          }
+
+          if (imageUrls && imageUrls.length > 0) {
+              console.log(`[Facebook] Đang đính kèm ${imageUrls.length} ảnh...`);
+              const addPhotoBtn = page.locator('div[aria-label*="Ảnh/video"], div[aria-label*="Photo/video"], div[aria-label*="Thêm ảnh/video"]').locator('visible=true').first();
+              
+              if (await addPhotoBtn.isVisible().catch(() => false)) {
+                  console.log('[Facebook] Đã tìm thấy nút Thêm Ảnh/Video, tiến hành click...');
+                  const [fileChooser] = await Promise.all([
+                    page.waitForEvent('filechooser', { timeout: 10000 }).catch(() => null),
+                    addPhotoBtn.click({ force: true })
+                  ]);
+                  
+                  if (fileChooser) {
+                      await fileChooser.setFiles(imageUrls);
+                      console.log('[Facebook] Upload ảnh thành công thông qua FileChooser.');
+                  }
               } else {
-                  console.log('[Facebook] Không bật được hộp thoại chọn file!');
+                  console.log('[Facebook] Không tìm thấy nút Thêm Ảnh/Video trên UI, thử tìm trực tiếp thẻ input file...');
+                  const fileInput = page.locator('input[type="file"]').last();
+                  if (await fileInput.count() > 0) {
+                      await fileInput.setInputFiles(imageUrls);
+                      console.log('[Facebook] Upload ảnh thành công trực tiếp qua thẻ input.');
+                  }
+              }
+              await this.automationService.wait(5000); 
+          }
+
+          console.log('[Facebook] Đang bấm nút Đăng (Post)...');
+          
+          const submitSelectors = [
+              'div[aria-label="Đăng"][role="button"]',
+              'div[aria-label="Post"][role="button"]',
+              'span:has-text("Đăng")',
+              'span:has-text("Post")'
+          ];
+          
+          let posted = false;
+          for (const sel of submitSelectors) {
+              const btn = page.locator(sel).last();
+              if (await btn.isVisible().catch(() => false)) {
+                  const disabled = await btn.getAttribute('aria-disabled');
+                  if (disabled === 'true') continue;
+                  
+                  await btn.click({ force: true });
+                  console.log(`[Facebook] Đã bấm nút Đăng qua selector: ${sel}`);
+                  posted = true;
+                  break;
+              }
+          }
+
+          if (posted) {
+              console.log('[Facebook] Bấm Đăng thành công. Đang đợi xác nhận...');
+              await editorLoc.waitFor({ state: 'hidden', timeout: 15000 }).catch(() => {});
+              await this.automationService.wait(3000);
+              state.tasksDone++;
+              postsThisSession++;
+              
+              if (postsThisSession < MAX_POSTS_PER_SESSION && state.tasksDone < groups.length) {
+                 const randomDelay = Math.floor(Math.random() * 40000) + 20000; // 20s - 60s
+                 console.log(`[Facebook] Đã đăng ${postsThisSession}/${MAX_POSTS_PER_SESSION} bài. Nghỉ ngơi ${Math.round(randomDelay/1000)} giây trước khi đăng tiếp...`);
+                 await this.automationService.wait(randomDelay);
               }
           } else {
-              console.log('[Facebook] Không tìm thấy nút Thêm Ảnh/Video trên UI, thử tìm trực tiếp thẻ input file...');
-              // Tìm thẻ input file cuối cùng (thường là của hộp thoại Create Post)
-              const fileInput = page.locator('input[type="file"][accept*="image"]').last();
-              if (await fileInput.count() > 0) {
-                  await fileInput.setInputFiles(imageUrls);
-                  console.log('[Facebook] Upload ảnh thành công trực tiếp qua thẻ input.');
-              }
-          }
-          
-          // Chờ FB load ảnh lên bản xem trước (nếu có upload ảnh thì phải chờ)
-          await this.automationService.wait(5000); 
-      }
-
-      // Bấm nút Đăng
-      console.log('[Facebook] Đang bấm nút Đăng (Post)...');
-      
-      const submitSelectors = [
-          'div[aria-label="Đăng"][role="button"]',
-          'div[aria-label="Post"][role="button"]',
-          'span:has-text("Đăng")',
-          'span:has-text("Post")'
-      ];
-      
-      let posted = false;
-      for (const sel of submitSelectors) {
-          const btn = page.locator(sel).last();
-          if (await btn.isVisible().catch(() => false)) {
-              const disabled = await btn.getAttribute('aria-disabled');
-              if (disabled === 'true') continue;
-              
-              await btn.click({ force: true });
-              console.log(`[Facebook] Đã bấm nút Đăng qua selector: ${sel}`);
-              posted = true;
-              break;
+              console.error('[Facebook] Nút Đăng không sáng hoặc không tìm thấy. Bỏ qua nhóm này...');
+              state.tasksDone++;
+              continue;
           }
       }
 
-      if (posted) {
-          console.log('[Facebook] Bấm Đăng thành công. Đang đợi xác nhận...');
-          await editorLoc.waitFor({ state: 'hidden', timeout: 15000 }).catch(() => {});
-          await this.automationService.wait(5000);
-          state.tasksDone++;
-          return true; // Thành công
-      } else {
-          console.error('[Facebook] Nút Đăng không sáng hoặc không tìm thấy.');
-          return false;
-      }
+      return true;
 
     } catch (e) {
        console.error('[Facebook] Lỗi trong quá trình postToGroup:', e);

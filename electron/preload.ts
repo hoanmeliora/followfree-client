@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loginGmailOAuth: () => ipcRenderer.invoke('account:loginGmailOAuth'),
   addGmailByCookie: (cookieStr: string) => ipcRenderer.invoke('account:addGmailByCookie', cookieStr),
   openBrowser: (id: string, platform: string, cookieStr: string) => ipcRenderer.invoke('account:openBrowser', { id, platform, cookieStr }),
+  selectFiles: () => ipcRenderer.invoke('dialog:openFiles'),
 
   // Campaigns
   createCampaign: (data: any) => ipcRenderer.invoke('campaign:create', data),

@@ -17,6 +17,7 @@ export default function AutoPostPage({ addLog, session }: Props) {
     try {
       const stored = localStorage.getItem('autopost_images');
       const parsed = stored ? JSON.parse(stored) : [];
+      // Khôi phục bộ lọc: Chỉ giữ lại ảnh nếu có path (dùng App)
       return Array.isArray(parsed) ? parsed.filter((img: any) => img && img.path && img.path.trim().length > 0) : [];
     } catch { return []; }
   });
@@ -63,7 +64,7 @@ export default function AutoPostPage({ addLog, session }: Props) {
         platform: 'FACEBOOK',
         actionType: mode === 'POST' ? 'POST_GROUP' : 'SHARE_GROUP',
         targetUrl: mode === 'POST' ? 'AUTO_POST' : targetUrl,
-        targetCount: groups.length,
+        targetCount: mode === 'POST' ? Math.ceil(groups.length / 3) : groups.length,
         metadata
       });
 
@@ -188,25 +189,27 @@ export default function AutoPostPage({ addLog, session }: Props) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>🖼️ Chọn Ảnh đính kèm (Có thể chọn nhiều ảnh):</label>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                <input 
-                  type="file" 
-                  accept="image/*"
-                  multiple
-                  onChange={e => {
-                    if (e.target.files) {
-                      const newImages = Array.from(e.target.files).map(file => ({
-                        path: (file as any).path || '',
-                        preview: URL.createObjectURL(file)
+                <button 
+                  type="button" 
+                  onClick={async () => {
+                    const result = await (window as any).electronAPI?.selectFiles();
+                    if (result && !result.canceled && result.filePaths) {
+                      const newImages = result.filePaths.map((path: string) => ({
+                        path,
+                        preview: `file://${path}`
                       }));
-                      setImages(prev => [...prev, ...newImages]);
+                      setImages((prev: any) => [...prev, ...newImages]);
                     }
-                  }} 
+                  }}
                   style={{
                     flex: 1, padding: '10px 14px', background: 'var(--bg-primary)',
                     border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-                    color: 'var(--text-primary)', fontSize: '14px', outline: 'none'
+                    color: 'var(--text-primary)', fontSize: '14px', outline: 'none',
+                    cursor: 'pointer', textAlign: 'left'
                   }}
-                />
+                >
+                  📁 Bấm vào đây để chọn ảnh...
+                </button>
                 {images.length > 0 && (
                   <button 
                     type="button" 
@@ -222,25 +225,17 @@ export default function AutoPostPage({ addLog, session }: Props) {
               {images.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '10px' }}>
                   {images.map((img, idx) => (
-                    <div key={idx} style={{ position: 'relative', width: '80px', height: '80px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border)', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <img 
-                        src={img.preview} 
-                        alt={`preview-${idx}`} 
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                        onError={(e) => { 
-                          e.currentTarget.style.display = 'none'; 
-                          if (e.currentTarget.nextElementSibling) {
-                            (e.currentTarget.nextElementSibling as HTMLElement).style.display = 'block';
-                          }
-                        }} 
-                      />
-                      <div style={{ display: 'none', fontSize: '12px', textAlign: 'center', padding: '5px', wordBreak: 'break-all', color: 'var(--text-secondary)' }}>
-                        {img.path.split(/[/\\]/).pop()}
+                    <div key={idx} style={{ position: 'relative', width: '90px', height: '90px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border)', background: 'var(--bg-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '5px' }}>
+                      
+                      <span style={{ fontSize: '24px', marginBottom: '5px' }}>🖼️</span>
+                      <div style={{ fontSize: '10px', textAlign: 'center', wordBreak: 'break-all', color: 'var(--accent)', fontWeight: 500 }}>
+                        {img.path ? img.path.split(/[/\\]/).pop() : 'Ảnh'}
                       </div>
+                      
                       <button 
                         type="button"
                         onClick={() => setImages(prev => prev.filter((_, i) => i !== idx))}
-                        style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none', borderRadius: '50%', width: '20px', height: '20px', fontSize: '10px', cursor: 'pointer' }}
+                        style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(239, 68, 68, 0.9)', color: '#fff', border: 'none', borderRadius: '50%', width: '20px', height: '20px', fontSize: '10px', cursor: 'pointer' }}
                       >
                         ✕
                       </button>

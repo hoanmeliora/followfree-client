@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, dialog } from 'electron'
 import path from 'path'
 import http from 'http'
 import url from 'url'
@@ -741,6 +741,18 @@ function setupIpcHandlers(
   ipcMain.handle('settings:update', async (_e, settings) => {
     storeService.updateSettings(settings)
     return { success: true }
+  })
+
+  // Dialog
+  ipcMain.handle('dialog:openFiles', async () => {
+    if (!mainWindow) return { canceled: true, filePaths: [] };
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: 'Images', extensions: ['jpg', 'png', 'gif', 'jpeg', 'webp'] }
+      ]
+    });
+    return result;
   })
 
   // Window controls
