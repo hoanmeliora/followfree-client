@@ -38,6 +38,8 @@ declare global {
       
       createCampaign: (data: any) => Promise<any>
       getCampaigns: () => Promise<any>
+      getSettings: () => Promise<any>
+      updateSettings: (settings: any) => Promise<any>
       cancelCampaign: (id: string) => Promise<any>
       previewTarget: (url: string, actionType: string) => Promise<any>
       
