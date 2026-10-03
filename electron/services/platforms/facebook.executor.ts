@@ -98,30 +98,42 @@ export class FacebookExecutor implements IPlatformExecutor {
           await this.automationService.wait(1500);
       }
       
-      // Lấy tất cả các dòng có thể click được (radio, button, menuitem) trên toàn màn hình
-      const profileLocators = await page.locator('div[role="radio"], div[role="button"], div[role="menuitem"], div[role="menuitemradio"]')
-        .filter({ hasNotText: /tạo trang|xem tất cả|cài đặt|đăng xuất|thông tin|đóng|trợ giúp|phản hồi|màn hình|chọn trang cá nhân|tài khoản|tìm kiếm/i })
-        .all();
+      // Đợi Menu mở ra
+      await this.automationService.wait(2000);
       
-      // Lọc tiếp: Phải có chữ (tên) và phải nằm ở nửa bên phải màn hình (tránh Sidebar trái)
+      // CHIẾN THUẬT SIÊU CHUẨN: Chỉ quét bên trong cái Modal (Menu) vừa bật ra
+      // Các Modal của Facebook luôn có role="dialog" hoặc role="menu"
+      const textSpans = await page.locator('div[role="dialog"] span[dir="auto"], div[role="menu"] span[dir="auto"]').all();
+      
       const validProfiles: any[] = [];
-      for (const loc of profileLocators) {
-          if (await loc.isVisible()) {
-              const text = await loc.textContent();
-              if (text && text.trim().length > 0 && text.trim().length < 50) { // Tên Page thường ngắn
-                  // Kiểm tra xem nó có hình ảnh (avatar) không để chắc chắn nó là 1 profile
-                  if (await loc.locator('image, img, svg').count() > 0) {
-                      const box = await loc.boundingBox();
-                      // Menu Avatar luôn nằm ở góc trên bên phải (x > 300 và y < 800)
-                      if (box && box.x > 300) {
-                          validProfiles.push(loc);
+      if (textSpans.length > 0) {
+          for (const span of textSpans) {
+              if (await span.isVisible()) {
+                  const text = await span.textContent();
+                  if (text && text.trim().length > 0 && text.trim().length < 60) {
+                      const t = text.toLowerCase();
+                      if (!t.includes('thông báo') && !t.includes('cài đặt') && !t.includes('đăng xuất') && !t.includes('trợ giúp') && !t.includes('xem tất cả') && !t.includes('quảng cáo')) {
+                          validProfiles.push(span);
                       }
                   }
               }
           }
+      } else {
+          console.log('[Facebook] Không tìm thấy Text nào trong Menu, Facebook có thể đã đổi cấu trúc HTML.');
+      }
+      
+      // Lọc trùng lặp
+      const uniqueProfiles: any[] = [];
+      const seenTexts = new Set();
+      for (const p of validProfiles) {
+          const t = (await p.textContent())?.trim();
+          if (t && !seenTexts.has(t)) {
+              seenTexts.add(t);
+              uniqueProfiles.push(p);
+          }
       }
 
-      if (validProfiles.length > 1) {
+      if (uniqueProfiles.length > 1) {
           let state = this.accountPageState[accountId];
           
           if (!state) {
@@ -144,23 +156,45 @@ export class FacebookExecutor implements IPlatformExecutor {
                   // Mở menu và chọn index 1 (vì khi ở Page, Nick chính luôn ở index 1)
                   await this.automationService.simulateHumanClick(page, 'svg[aria-label="Trang cá nhân của bạn"], svg[aria-label="Your profile"]', { index: 'last' });
                   await this.automationService.wait(1500);
-                  const seeAll = page.locator('div[role="button"]').filter({ hasText: /Xem tất cả trang cá nhân|See all profiles/i });
-                  if (await seeAll.isVisible()) { await seeAll.click(); await this.automationService.wait(1500); }
+                  await this.automationService.wait(2000);
                   
-                  const locs = await page.locator('div[role="radio"], div[role="button"], div[role="menuitemradio"]').filter({ hasNotText: /tạo trang|xem tất cả|cài đặt|đăng xuất|thông tin|đóng|trợ giúp|phản hồi|màn hình|tài khoản|tìm kiếm/i }).all();
+                  const textSpans2 = await page.locator('div[role="dialog"] span[dir="auto"], div[role="menu"] span[dir="auto"]').all();
                   const valids: any[] = [];
-                  for (const loc of locs) {
-                      if (await loc.isVisible() && await loc.locator('image, img, svg').count() > 0) {
-                          const box = await loc.boundingBox();
-                          if (box && box.x > 300) valids.push(loc);
+                  if (textSpans2.length > 0) {
+                      for (const span of textSpans2) {
+                          if (await span.isVisible()) {
+                              const text = await span.textContent();
+                              if (text && text.trim().length > 0 && text.trim().length < 60) {
+                                  const t = text.toLowerCase();
+                                  if (!t.includes('thông báo') && !t.includes('cài đặt') && !t.includes('đăng xuất') && !t.includes('trợ giúp') && !t.includes('xem tất cả') && !t.includes('quảng cáo')) {
+                                      valids.push(span);
+                                  }
+                              }
+                          }
                       }
                   }
                   
-                  if (valids.length > 1) {
-                      mainName = await valids[1].textContent() || 'Unknown';
-                      await valids[1].click();
-                      await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
-                      await this.automationService.wait(3000);
+                  const uniqueValids: any[] = [];
+                  const seenT = new Set();
+                  for (const p of valids) {
+                      const t = (await p.textContent())?.trim();
+                      if (t && !seenT.has(t)) {
+                          seenT.add(t);
+                          uniqueValids.push(p);
+                      }
+                  }
+                  
+                  if (uniqueValids.length > 1) {
+                      mainName = await uniqueValids[1].textContent() || 'Unknown';
+                      // Dùng toạ độ chuột để click chắc chắn 100% thay vì hàm click ảo
+                      const targetBox = await uniqueValids[1].boundingBox();
+                      if (targetBox) {
+                          await page.mouse.click(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2);
+                      } else {
+                          await uniqueValids[1].click({ force: true });
+                      }
+                      await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 }).catch(() => {});
+                      await this.automationService.wait(8000);
                   }
               } else {
                   console.log('[Facebook] Đang ở sẵn Nick chính!');
@@ -174,7 +208,7 @@ export class FacebookExecutor implements IPlatformExecutor {
                   await page.keyboard.press('Escape');
               }
 
-              state = { mainAccountName: mainName, pageIndex: 0, tasksDone: 0, maxTasks: 3 + Math.floor(Math.random() * 3) };
+              state = { mainAccountName: mainName, pageIndex: 0, tasksDone: 0, maxTasks: 10 + Math.floor(Math.random() * 3) };
               this.accountPageState[accountId] = state;
               console.log(`[Facebook] ✅ Đã lưu bộ nhớ Nick chính là: "${mainName}"`);
               
@@ -184,7 +218,7 @@ export class FacebookExecutor implements IPlatformExecutor {
 
           // Tạo danh sách CHỈ CHỨA PAGE bằng cách loại bỏ Nick chính
           const pagesOnly: any[] = [];
-          for (const p of validProfiles) {
+          for (const p of uniqueProfiles) {
               const name = await p.textContent();
               if (name !== state.mainAccountName) {
                   pagesOnly.push(p);
@@ -199,7 +233,7 @@ export class FacebookExecutor implements IPlatformExecutor {
                       state.pageIndex = 0; // Xoay vòng lại từ Page đầu tiên
                   }
                   state.tasksDone = 0;
-                  state.maxTasks = 3 + Math.floor(Math.random() * 3);
+                  state.maxTasks = 10 + Math.floor(Math.random() * 3);
               }
               
               const targetProfile = pagesOnly[state.pageIndex];
@@ -217,11 +251,19 @@ export class FacebookExecutor implements IPlatformExecutor {
               }
 
               console.log(`[Facebook] Đang click chuyển sang Page: ${profileName}... (Bắt đầu lô ${state.maxTasks} bài)`);
-              await targetProfile.click();
+              
+              // Dùng toạ độ chuột để click chắc chắn 100%
+              const targetBox = await targetProfile.boundingBox();
+              if (targetBox) {
+                  await page.mouse.click(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2);
+              } else {
+                  await targetProfile.click({ force: true });
+              }
+              
               state.tasksDone++;
               
-              await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
-              await this.automationService.wait(3000);
+              await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 }).catch(() => {});
+              await this.automationService.wait(8000); // Tăng thời gian chờ lên 8 giây để chắc chắn FB đã load xong UI mới
               console.log('[Facebook] Đổi thân phận thành Page thành công!');
               return true;
           } else {
@@ -364,7 +406,7 @@ export class FacebookExecutor implements IPlatformExecutor {
         try {
             const titleText = await page.title();
             if (titleText) {
-                groupName = titleText.replace(/^\(\d+\)\s*/, '').replace(/\s*\|\s*Facebook$/, '').trim();
+                groupName = titleText.replace(/^\([^)]+\)\s*/, '').replace(/\s*\|\s*Facebook$/, '').trim();
             }
             if (groupName === 'Nhóm' || groupName === 'Facebook') {
                 const h1s = await page.$$('h1');
@@ -709,7 +751,77 @@ export class FacebookExecutor implements IPlatformExecutor {
             continue; // Chuyển sang nhóm tiếp theo
         }
 
-        console.log('[Facebook] Nhóm mở (Đăng ngay). Bấm nút Đăng để hoàn tất chia sẻ...');
+        console.log('[Facebook] Nhóm mở (Đăng ngay).');
+
+        // CHỨC NĂNG: Xử lý nội dung (Spintax) và kiểm tra từ khoá cấm
+        if (task.metadata?.content) {
+            let contentStr = task.metadata.content;
+            
+            // Xử lý Spintax (Nội dung A | Nội dung B | Nội dung C)
+            if (contentStr.includes('|')) {
+                const parts = contentStr.split('|').map((p: string) => p.trim()).filter((p: string) => p.length > 0);
+                if (parts.length > 0) {
+                    contentStr = parts[Math.floor(Math.random() * parts.length)];
+                }
+            }
+
+            // Từ khoá cấm chuẩn Production (Dựa trên chính sách Facebook và kinh nghiệm chạy Ads/Spam)
+            const forbiddenWords = [
+                // 1. Cờ bạc, Tài xỉu, Lô đề
+                'tài xỉu', 'đánh bạc', 'cá độ', 'lô đề', 'soi cầu', 'kubet', 'sunwin', 'baccarat', 'game bài',
+                // 2. Tín dụng đen, Vay nặng lãi
+                'vay nặng lãi', 'bốc bát họ', 'cầm đồ', 'vay không thế chấp', 'giải ngân nhanh', 'đòi nợ',
+                // 3. 18+, Nhạy cảm
+                'gái gọi', 'sugar baby', 'sugar daddy', 'kích dục', 'thuốc kích dục', '18+', 'sextoy', 'đồ chơi tình dục',
+                // 4. Hàng giả, Hàng nhái, Vi phạm bản quyền
+                'hàng fake', 'super fake', 'rep 1:1', 'hàng nhái', 'fake loại 1',
+                // 5. Y tế, Thuốc (Cam kết quá đáng)
+                'thuốc giảm cân', 'giảm mỡ nhanh', 'chữa bách bệnh', 'cam kết khỏi bệnh 100%', 'thuốc cường dương', 'trị dứt điểm',
+                // 6. Vũ khí, Chất kích thích
+                'súng', 'đạn', 'dao găm', 'mã tấu', 'thuốc lá', 'vape', 'pod', 'ma tuý', 'cần sa', 'shisha',
+                // 7. Lừa đảo, Đa cấp, Scam
+                'việc nhẹ lương cao', 'cam kết sinh lời', 'đầu tư lợi nhuận khủng', 'kiếm tiền tại nhà dễ dàng', 'đa cấp',
+                // 8. Tương tác giả mạo
+                'tăng like', 'mua follow', 'hack like', 'hack sub'
+            ];
+            
+            const hasForbidden = forbiddenWords.some(w => contentStr.toLowerCase().includes(w.toLowerCase()));
+            
+            if (hasForbidden) {
+                console.log(`[Facebook] ⚠️ Nội dung chứa từ khoá nhạy cảm/bị cấm! Bỏ qua nhóm này để bảo vệ tài khoản.`);
+                await page.keyboard.press('Escape');
+                await this.automationService.wait(1000);
+                await page.keyboard.press('Escape');
+                continue;
+            }
+
+            console.log(`[Facebook] Nhập nội dung chia sẻ: ${contentStr.substring(0, 50)}...`);
+            // Tìm ô nhập text
+            const textLocators = [
+                'div[role="textbox"][aria-label*="Hãy nói gì đó"]',
+                'div[role="textbox"][aria-label*="Say something"]',
+                'div[role="textbox"][aria-label*="viết"]'
+            ];
+            
+            let typed = false;
+            for (const tLoc of textLocators) {
+                const box = page.locator(tLoc).first();
+                if (await box.isVisible().catch(() => false)) {
+                    await box.click();
+                    await this.automationService.wait(500);
+                    // Dùng type thay vì insertText để giả lập gõ phím từng chữ (tránh lỗi React DraftJS của FB không nhận diện được chữ dẫn tới lỗi đăng)
+                    await page.keyboard.type(contentStr, { delay: 15 });
+                    await this.automationService.wait(2000);
+                    typed = true;
+                    break;
+                }
+            }
+            if (!typed) {
+                console.log('[Facebook] Không tìm thấy ô nhập nội dung, sẽ chia sẻ không có nội dung.');
+            }
+        }
+
+        console.log('[Facebook] Bấm nút Đăng để hoàn tất chia sẻ...');
         const postSelectors = [
           'div[aria-label="Đăng"][role="button"]',
           'div[aria-label="Post"][role="button"]',
@@ -724,7 +836,31 @@ export class FacebookExecutor implements IPlatformExecutor {
             const isDisabled = await btn.getAttribute('aria-disabled');
             if (isDisabled === 'true') continue;
             
+            // Sếp bảo chậm lại: Thêm delay ngẫu nhiên 2-4 giây trước khi bấm Đăng để giả lập người thật đang đọc lại bài
+            await this.automationService.wait(2000 + Math.random() * 2000);
+            
             if (await this.automationService.simulateHumanClick(page, selector)) {
+               // Chờ 3 giây để xem Facebook có phun ra cái bảng đen báo lỗi không
+               await this.automationService.wait(3000);
+               
+               const errorToast = page.locator('span, div').filter({ hasText: /Đã xảy ra lỗi/i }).first();
+               if (await errorToast.isVisible().catch(() => false)) {
+                   console.log('[Facebook] ⚠️ Phát hiện lỗi "Đã xảy ra lỗi kỹ thuật" từ Facebook! Chờ 5 giây và thử bấm Đăng lại lần 2...');
+                   await this.automationService.wait(5000);
+                   
+                   // Thử bấm lại nút Đăng
+                   await this.automationService.simulateHumanClick(page, selector);
+                   await this.automationService.wait(4000);
+                   
+                   if (await errorToast.isVisible().catch(() => false)) {
+                       console.log('[Facebook] ❌ Lỗi vẫn ngoan cố xuất hiện! Bỏ qua nhóm này.');
+                       await page.keyboard.press('Escape');
+                       await this.automationService.wait(1000);
+                       await page.keyboard.press('Escape');
+                       break; // Bỏ qua, không tính là thành công
+                   }
+               }
+
                console.log(`[Facebook] Chia sẻ thành công nhóm ${groupIdUrl}!`);
                successCount++;
                posted = true;
@@ -744,16 +880,16 @@ export class FacebookExecutor implements IPlatformExecutor {
 
       // 9. NHỊP NGHỈ VÀ NUÔI NICK TRƯỚC KHI SHARE NHÓM TIẾP THEO
       if (i < groupIds.length - 1) {
-          const delayMins = 1 + Math.random() * 2; // 1 đến 3 phút
-          console.log(`[Facebook] 🛑 Tạm nghỉ ${delayMins.toFixed(1)} phút và lướt Newfeed để giả lập người thật trước khi share tiếp...`);
+          const delaySecs = 30 + Math.random() * 30; // 30 đến 60 giây
+          console.log(`[Facebook] 🛑 Tạm nghỉ ${delaySecs.toFixed(0)} giây và lướt Newfeed để giả lập người thật trước khi share tiếp...`);
           
           await page.goto('https://www.facebook.com/');
-          await this.automationService.wait(4000 + Math.random() * 2000);
+          await this.automationService.wait(3000 + Math.random() * 2000);
           
-          const scrollCount = 4 + Math.floor(Math.random() * 3); // Cuộn 4-6 lần
+          const scrollCount = 2 + Math.floor(Math.random() * 2); // Cuộn 2-3 lần
           for (let s = 0; s < scrollCount; s++) {
             await this.automationService.simulateScroll(page, 1500);
-            await this.automationService.wait(10000 + Math.random() * 10000); // Đợi 10-20s mỗi lần cuộn
+            await this.automationService.wait(5000 + Math.random() * 5000); // Đợi 5-10s mỗi lần cuộn
           }
       }
     }

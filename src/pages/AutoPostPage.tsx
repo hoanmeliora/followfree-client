@@ -10,7 +10,9 @@ export default function AutoPostPage({ addLog, session }: Props) {
   const [mode, setMode] = useState<'SHARE' | 'POST'>(() => (localStorage.getItem('autopost_mode') as any) || 'POST');
   const [groupIds, setGroupIds] = useState(() => localStorage.getItem('autopost_groupIds') || '');
   const [interval, setIntervalTime] = useState(() => localStorage.getItem('autopost_interval') || '60');
-  const [content, setContent] = useState(() => localStorage.getItem('autopost_content') || '');
+  const [content1, setContent1] = useState(() => localStorage.getItem('autopost_content1') || '');
+  const [content2, setContent2] = useState(() => localStorage.getItem('autopost_content2') || '');
+  const [content3, setContent3] = useState(() => localStorage.getItem('autopost_content3') || '');
   const [images, setImages] = useState<Array<{ path: string, preview: string }>>(() => {
     try {
       const stored = localStorage.getItem('autopost_images');
@@ -25,10 +27,12 @@ export default function AutoPostPage({ addLog, session }: Props) {
     localStorage.setItem('autopost_mode', mode);
     localStorage.setItem('autopost_groupIds', groupIds);
     localStorage.setItem('autopost_interval', interval);
-    localStorage.setItem('autopost_content', content);
+    localStorage.setItem('autopost_content1', content1);
+    localStorage.setItem('autopost_content2', content2);
+    localStorage.setItem('autopost_content3', content3);
     localStorage.setItem('autopost_images', JSON.stringify(images));
     localStorage.setItem('autopost_targetUrl', targetUrl);
-  }, [mode, groupIds, interval, content, images, targetUrl]);
+  }, [mode, groupIds, interval, content1, content2, content3, images, targetUrl]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,10 +50,12 @@ export default function AutoPostPage({ addLog, session }: Props) {
 
     if (mode === 'POST') {
       const validImages = images.map(img => img.path).filter(p => p && p.trim().length > 0);
-      if (!content.trim() && validImages.length === 0) {
+      const finalContent = [content1, content2, content3].filter(c => c.trim().length > 0).join(' | ');
+      
+      if (!finalContent.trim() && validImages.length === 0) {
         return alert('Vui lòng nhập nội dung bài đăng hoặc chọn ít nhất 1 ảnh hợp lệ!');
       }
-      metadata.postData = { content, imageUrls: validImages };
+      metadata.postData = { content: finalContent, imageUrls: validImages };
     }
 
     try {
@@ -139,17 +145,43 @@ export default function AutoPostPage({ addLog, session }: Props) {
         ) : (
           <>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>📝 Nội dung bài viết (Text):</label>
+              <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>📝 Nội dung bài viết (Spintax - Sẽ chọn ngẫu nhiên 1 trong 3 nội dung khi đăng):</label>
+              
               <textarea 
-                rows={5}
-                value={content} 
-                onChange={e => setContent(e.target.value)} 
-                placeholder="Nhập nội dung cần đăng..." 
-                required 
+                rows={3}
+                value={content1} 
+                onChange={e => setContent1(e.target.value)} 
+                placeholder="Nhập nội dung 1..." 
                 style={{
                   width: '100%', padding: '12px 14px', background: 'var(--bg-primary)',
                   border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
                   color: 'var(--text-primary)', fontSize: '14px', outline: 'none', resize: 'vertical'
+                }}
+              />
+              
+              <textarea 
+                rows={3}
+                value={content2} 
+                onChange={e => setContent2(e.target.value)} 
+                placeholder="Nhập nội dung 2 (tuỳ chọn)..." 
+                style={{
+                  width: '100%', padding: '12px 14px', background: 'var(--bg-primary)',
+                  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+                  color: 'var(--text-primary)', fontSize: '14px', outline: 'none', resize: 'vertical',
+                  marginTop: '4px'
+                }}
+              />
+              
+              <textarea 
+                rows={3}
+                value={content3} 
+                onChange={e => setContent3(e.target.value)} 
+                placeholder="Nhập nội dung 3 (tuỳ chọn)..." 
+                style={{
+                  width: '100%', padding: '12px 14px', background: 'var(--bg-primary)',
+                  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+                  color: 'var(--text-primary)', fontSize: '14px', outline: 'none', resize: 'vertical',
+                  marginTop: '4px'
                 }}
               />
             </div>

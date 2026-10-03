@@ -1,7 +1,5 @@
 import { io, Socket } from 'socket.io-client'
-import { chromium } from 'playwright-extra'
-import { BrowserContext, Page } from 'playwright'
-import stealthPlugin from 'puppeteer-extra-plugin-stealth'
+import { chromium, BrowserContext, Page } from 'playwright'
 import { StoreService } from './store.service'
 import { Ipv6Service } from './ipv6.service'
 import { LocalProxyService } from './local-proxy.service'
@@ -13,7 +11,7 @@ import { FacebookExecutor } from './platforms/facebook.executor'
 import { TikTokExecutor } from './platforms/tiktok.executor'
 import { NurturingService } from './nurturing/nurturing.service'
 
-chromium.use(stealthPlugin())
+
 
 const SERVER_URL = process.env.SERVER_URL || 'https://followfree-server.onrender.com'
 const HEARTBEAT_INTERVAL_MS = 30_000
@@ -289,7 +287,6 @@ export class WorkerService {
 
   private async createBrowserContext(accountId: string, proxyUrl?: string): Promise<{ context: BrowserContext, page: Page }> {
     const { FingerprintGenerator } = require('fingerprint-generator');
-    const { FingerprintInjector } = require('fingerprint-injector');
     const { app } = require('electron');
     const path = require('path');
     const fs = require('fs');
@@ -299,6 +296,15 @@ export class WorkerService {
     // FIX #4: Đảm bảo thư mục profile tồn tại trước khi Playwright dùng (Windows cần mkdir explicit)
     if (!fs.existsSync(profilePath)) {
       fs.mkdirSync(profilePath, { recursive: true });
+    } else {
+      // Xoá lock file nếu trình duyệt trước đó crash, tránh lỗi treo about:blank
+      const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+      for (const lf of lockFiles) {
+        const lfPath = path.join(profilePath, lf);
+        if (fs.existsSync(lfPath)) {
+           try { fs.unlinkSync(lfPath); } catch {}
+        }
+      }
     }
 
     const fingerprintGenerator = new FingerprintGenerator({
@@ -307,7 +313,6 @@ export class WorkerService {
         operatingSystems: ['windows', 'macos'],
     });
     const fingerprint = fingerprintGenerator.getFingerprint();
-    const fingerprintInjector = new FingerprintInjector();
     
     const settings = this.store.getSettings();
     const isHeadless = settings?.runHeadless ?? false;
@@ -318,7 +323,7 @@ export class WorkerService {
        colorScheme: 'dark',
        viewport: { width: 1280, height: 800 },
        userAgent: accountId ? this.store.getAccounts().find(a => a.id === accountId)?.userAgent || fingerprint.fingerprint.navigator.userAgent : fingerprint.fingerprint.navigator.userAgent,
-       channel: 'chrome',
+       // channel: 'chrome', // Bỏ qua channel chrome để dùng Chromium nội bộ (ổn định hơn nhiều, không bị treo do CDP)
        args: [
          '--disable-gpu',
          '--no-sandbox',
@@ -329,15 +334,21 @@ export class WorkerService {
        ]
     }
 
+    // TẠM THỜI TẮT PROXY ĐỂ TEST XEM CÓ PHẢI DO PROXY GÂY TREO KHÔNG
+    proxyUrl = undefined;
+    
     if (proxyUrl) {
        contextOptions.proxy = { server: proxyUrl }
     }
 
+    console.log('[Worker] Đang mở trình duyệt qua Playwright với options:', { ...contextOptions, proxy: proxyUrl });
+    
     // Dùng Môi trường cứng (Persistent Context) để lưu Cache, LocalStorage chống Checkpoint
     const context = await chromium.launchPersistentContext(profilePath, contextOptions);
+    console.log('[Worker] Đã mở trình duyệt thành công!');
     
-    // Bơm dấu vân tay siêu cấp
-    await fingerprintInjector.attachFingerprintToPlaywright(context, fingerprint);
+    // Bỏ qua FingerprintInjector vì nó gây treo (hang) với playwright-extra stealth,
+    // stealth plugin đã lo việc evasion, ta chỉ cần userAgent từ FingerprintGenerator.
 
     // Lấy trang đầu tiên có sẵn trong context
     const pages = context.pages();
@@ -406,7 +417,14 @@ export class WorkerService {
       const initialUrl = (task.campaign.actionType === 'SHARE_GROUP' || task.campaign.actionType === 'POST_GROUP') 
         ? 'https://www.facebook.com' 
         : task.campaign.targetUrl;
-      await page.goto(initialUrl);
+      console.log(`[Worker] Đang điều hướng đến: ${initialUrl}...`)
+      try {
+        await page.goto(initialUrl, { timeout: 30000 });
+        console.log(`[Worker] Điều hướng thành công!`)
+      } catch (err: any) {
+        console.error(`[Worker] Lỗi điều hướng (Có thể do proxy hoặc mạng yếu):`, err.message)
+        throw err;
+      }
       await page.waitForTimeout(4000)
 
       const isLoginScreen = await page.evaluate(() => {
