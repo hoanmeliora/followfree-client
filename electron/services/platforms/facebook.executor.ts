@@ -953,7 +953,15 @@ export class FacebookExecutor implements IPlatformExecutor {
       }
 
       const postData = campaignMeta.postData || {};
-      const content = postData.content || '';
+      let content = postData.content || '';
+      
+      // Xử lý Spintax (Random theo dấu |)
+      if (content.includes('|')) {
+          const parts = content.split('|').map((p: string) => p.trim()).filter((p: string) => p.length > 0);
+          if (parts.length > 0) {
+              content = parts[Math.floor(Math.random() * parts.length)];
+          }
+      }
       const imageUrls = (postData.imageUrls || []).filter((url: string) => url && url.trim().length > 0);
       console.log(`[Facebook] Debug campaignMeta:`, JSON.stringify(campaignMeta));
       console.log(`[Facebook] Debug postData:`, JSON.stringify(postData));
@@ -1096,44 +1104,64 @@ export class FacebookExecutor implements IPlatformExecutor {
       // Đính kèm ảnh nếu có
       if (imageUrls && imageUrls.length > 0) {
           console.log(`[Facebook] Đang đính kèm ${imageUrls.length} ảnh...`);
-          // Nút thêm ảnh vào bài viết
-          const addPhotoBtn = page.locator('div[aria-label="Ảnh/video"], div[aria-label="Photo/video"]').first();
-          if (await addPhotoBtn.isVisible()) {
-              // Trong Playwright, để upload file local, cách tốt nhất là tìm thẻ input[type="file"]
-              // Facebook render thẻ input file ẩn trong DOM. 
-              // Đôi khi addPhotoBtn click vào sẽ mở picker native. Playwright cần dùng expectFileChooser hoặc setInputFiles.
+          // Tìm nút Thêm ảnh/video (có thể có nhiều label khác nhau tuỳ giao diện)
+          const addPhotoBtn = page.locator('div[aria-label*="Ảnh/video"], div[aria-label*="Photo/video"], div[aria-label*="Thêm ảnh"], div[aria-label*="Thêm ảnh/video"]').filter({ has: page.locator('i') }).first();
+          
+          if (await addPhotoBtn.isVisible().catch(() => false)) {
+              console.log('[Facebook] Đã tìm thấy nút Thêm Ảnh/Video, tiến hành click...');
+              const [fileChooser] = await Promise.all([
+                page.waitForEvent('filechooser', { timeout: 10000 }).catch(() => null),
+                addPhotoBtn.click({ force: true })
+              ]);
               
-              // Thay vì click, lấy thẳng input type file
-              const fileInput = page.locator('input[type="file"][accept*="image"]').first();
-              if (await fileInput.count() > 0) {
-                 await fileInput.setInputFiles(imageUrls);
-                 console.log('[Facebook] Upload ảnh thành công thông qua file input.');
+              if (fileChooser) {
+                  await fileChooser.setFiles(imageUrls);
+                  console.log('[Facebook] Upload ảnh thành công thông qua FileChooser.');
               } else {
-                 // Nếu không tìm thấy thẻ input (FB giấu), thử cách click và hứng file chooser
-                 const [fileChooser] = await Promise.all([
-                   page.waitForEvent('filechooser'),
-                   addPhotoBtn.click()
-                 ]);
-                 await fileChooser.setFiles(imageUrls);
-                 console.log('[Facebook] Upload ảnh thành công thông qua FileChooser.');
+                  console.log('[Facebook] Không bật được hộp thoại chọn file!');
               }
-              
-              // Chờ FB load ảnh lên bản xem trước
-              await this.automationService.wait(5000); 
+          } else {
+              console.log('[Facebook] Không tìm thấy nút Thêm Ảnh/Video trên UI, thử tìm trực tiếp thẻ input file...');
+              // Tìm thẻ input file cuối cùng (thường là của hộp thoại Create Post)
+              const fileInput = page.locator('input[type="file"][accept*="image"]').last();
+              if (await fileInput.count() > 0) {
+                  await fileInput.setInputFiles(imageUrls);
+                  console.log('[Facebook] Upload ảnh thành công trực tiếp qua thẻ input.');
+              }
           }
+          
+          // Chờ FB load ảnh lên bản xem trước (nếu có upload ảnh thì phải chờ)
+          await this.automationService.wait(5000); 
       }
 
       // Bấm nút Đăng
       console.log('[Facebook] Đang bấm nút Đăng (Post)...');
-      const submitBtn = page.locator('div[aria-label="Đăng"], div[aria-label="Post"]').filter({ has: page.locator('span') }).first();
-      if (await submitBtn.isVisible() && !await submitBtn.isDisabled()) {
-          await submitBtn.click();
+      
+      const submitSelectors = [
+          'div[aria-label="Đăng"][role="button"]',
+          'div[aria-label="Post"][role="button"]',
+          'span:has-text("Đăng")',
+          'span:has-text("Post")'
+      ];
+      
+      let posted = false;
+      for (const sel of submitSelectors) {
+          const btn = page.locator(sel).last();
+          if (await btn.isVisible().catch(() => false)) {
+              const disabled = await btn.getAttribute('aria-disabled');
+              if (disabled === 'true') continue;
+              
+              await btn.click({ force: true });
+              console.log(`[Facebook] Đã bấm nút Đăng qua selector: ${sel}`);
+              posted = true;
+              break;
+          }
+      }
+
+      if (posted) {
           console.log('[Facebook] Bấm Đăng thành công. Đang đợi xác nhận...');
-          
-          // Đợi Facebook tải lên và đóng modal (Modal Editor mất đi)
           await editorLoc.waitFor({ state: 'hidden', timeout: 15000 }).catch(() => {});
-          await this.automationService.wait(3000);
-          
+          await this.automationService.wait(5000);
           state.tasksDone++;
           return true; // Thành công
       } else {

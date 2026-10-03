@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell } from 'ele
 import path from 'path'
 import http from 'http'
 import url from 'url'
+import { autoUpdater } from 'electron-updater'
 
 function getRandomUserAgent(seed?: string): string {
   const agents = [
@@ -788,6 +789,13 @@ app.whenReady().then(async () => {
   setupIpcHandlers(authService, storeService, campaignService, depositService, emailService)
   createWindow()
   createTray()
+  
+  // Kiểm tra cập nhật tự động (nếu là bản build Production)
+  if (!isDev) {
+    autoUpdater.checkForUpdatesAndNotify().catch(err => {
+      console.log('Update Error:', err)
+    })
+  }
 
   // Auto-start worker if already logged in
   const session = storeService.getSession()
