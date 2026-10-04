@@ -25,6 +25,7 @@ function getRandomUserAgent(seed?: string): string {
 import { WorkerService } from './services/worker.service'
 import { AuthService } from './services/auth.service'
 import { StoreService } from './services/store.service'
+import { AccountSyncService } from './services/account-sync.service'
 import { CampaignService } from './services/campaign.service'
 import { DepositService } from './services/deposit.service'
 import { EmailService } from './services/email.service'
@@ -137,10 +138,14 @@ function setupIpcHandlers(
   campaignService: CampaignService,
   depositService: DepositService,
   emailService: EmailService,
+  accountSyncService: AccountSyncService,
 ) {
   // Auth
   ipcMain.handle('auth:login', async (_e, { username, password }) => {
-    return authService.login(username, password)
+    const result = await authService.login(username, password)
+    // Đăng nhập ở máy mới: kéo nick đã lưu trên server về trước khi UI load danh sách
+    if (result.success) await accountSyncService.pull()
+    return result
   })
 
   ipcMain.handle('auth:register', async (_e, { username, email, password }) => {
@@ -768,6 +773,7 @@ function setupIpcHandlers(
 app.whenReady().then(async () => {
   const storeService = new StoreService()
   const authService = new AuthService(storeService)
+  const accountSyncService = new AccountSyncService(storeService)
   const campaignService = new CampaignService(storeService)
   const depositService = new DepositService(storeService)
   emailService = new EmailService()
@@ -798,7 +804,7 @@ app.whenReady().then(async () => {
     mainWindow?.webContents.send('email:error', err?.message || 'Lỗi IMAP')
   })
 
-  setupIpcHandlers(authService, storeService, campaignService, depositService, emailService)
+  setupIpcHandlers(authService, storeService, campaignService, depositService, emailService, accountSyncService)
   createWindow()
   createTray()
   
@@ -812,6 +818,7 @@ app.whenReady().then(async () => {
   // Auto-start worker if already logged in
   const session = storeService.getSession()
   if (session?.token) {
+    void accountSyncService.pull()
     setTimeout(() => workerService?.start(), 3000)
   }
 

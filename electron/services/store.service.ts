@@ -63,6 +63,7 @@ const schema = {
 export class StoreService {
   private store: Store<AppData>
   public activeIpv4Accounts = new Set<string>()
+  private accountsListeners: Array<() => void> = []
 
   constructor() {
     this.store = new Store<AppData>({
@@ -98,6 +99,18 @@ export class StoreService {
 
   saveAccounts(accounts: SocialAccount[]): void {
     (this.store as any).set('accounts', accounts)
+    this.notifyAccountsChanged()
+  }
+
+  /** Đăng ký callback được gọi mỗi khi danh sách nick thay đổi (dùng cho cloud sync). */
+  onAccountsChanged(listener: () => void): void {
+    this.accountsListeners.push(listener)
+  }
+
+  private notifyAccountsChanged(): void {
+    for (const listener of this.accountsListeners) {
+      try { listener() } catch (err) { console.error('[Store] accounts listener failed:', err) }
+    }
   }
 
   updateAccountStatus(id: string, status: string): void {
@@ -127,6 +140,7 @@ export class StoreService {
       }
     }
     (this.store as any).set('accounts', merged)
+    this.notifyAccountsChanged()
   }
 
 
