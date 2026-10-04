@@ -10,7 +10,10 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: write
     
@@ -30,8 +33,15 @@ jobs:
       - name: Build the app
         run: npm run build
 
-      - name: Build Electron for Windows
+      - name: Build Electron (Windows)
+        if: matrix.os == 'windows-latest'
         run: npm run build:electron -- --win
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Electron (macOS)
+        if: matrix.os == 'macos-latest'
+        run: npm run build:electron -- --mac
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -44,10 +54,15 @@ jobs:
             dist/*.nsis
             dist/latest.yml
             dist/*.blockmap
+            dist/*.dmg
+            dist/*.zip
+            dist/latest-mac.yml
 
-      - name: Upload Windows Artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: followfree-windows-exe
-          path: dist/*.exe
+          name: followfree-artifacts-${{ matrix.os }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
           retention-days: 7
