@@ -141,8 +141,8 @@ const AutoRegPage: React.FC<{ goToAccounts?: () => void }> = ({ goToAccounts }) 
       return;
     }
 
-    if (platform === 'facebook' && !selectedGmailId) {
-      setLogs(prev => [...prev, '[Lỗi] Bắt buộc phải chọn 1 tài khoản Gmail (để làm Phôi hoặc làm Hòm Thư Nhận Mã OTP)!']);
+    if (platform === 'gmail' && !selectedGmailId) {
+      setLogs(prev => [...prev, '[Lỗi] Bắt buộc phải chọn 1 tài khoản Gmail!']);
       return;
     }
 
@@ -205,7 +205,7 @@ const AutoRegPage: React.FC<{ goToAccounts?: () => void }> = ({ goToAccounts }) 
           </select>
         </div>
 
-        {platform !== 'youtube' && (
+        {platform === 'gmail' && (
           <>
             <div style={{ marginBottom: '15px' }}>
               <label style={{ display: 'block', marginBottom: '5px', color: '#ccc' }}>Chọn Gmail Clone</label>
