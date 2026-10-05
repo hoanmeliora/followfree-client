@@ -141,10 +141,11 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
     <div className="dashboard-root">
       {/* Custom Titlebar */}
       <div className="titlebar">
-        <div className="brand-mini">⚡ FollowFree <span style={{fontSize: '11px', color: 'var(--text-muted)', marginLeft: '4px'}}>v0.0.9</span></div>
+        <div className="brand-mini">⚡ FollowFree <span style={{fontSize: '11px', color: 'var(--text-muted)', marginLeft: '4px'}}>v0.1.0</span></div>
         <div className="titlebar-drag" />
         <div className="titlebar-controls">
           <button onClick={() => window.electronAPI?.minimizeWindow()} className="ctrl-btn">─</button>
+          <button onClick={() => window.electronAPI?.maximizeWindow()} className="ctrl-btn">🗖</button>
           <button onClick={() => window.electronAPI?.hideWindow()} className="ctrl-btn close">✕</button>
         </div>
       </div>
@@ -401,6 +402,35 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
                     <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 300 }}>Khi bật tính năng này, bot sẽ chạy ẩn ở dưới nền giúp tiết kiệm RAM đáng kể. Tắt đi nếu bạn muốn xem trực tiếp màn hình bot đang tương tác.</div>
                   </div>
                 </label>
+              </div>
+
+              <div style={{ 
+                background: 'rgba(255,255,255,0.02)', 
+                padding: '24px', 
+                borderRadius: '12px', 
+                border: '1px solid var(--border)',
+                backdropFilter: 'blur(10px)',
+                marginTop: '20px'
+              }}>
+                <h3 style={{ fontSize: '14px', marginBottom: '16px', fontWeight: 400, color: 'var(--accent)' }}>Cập nhật hệ thống</h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                  <div>
+                    <div style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 400 }}>Kiểm tra phiên bản mới</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 300 }}>Hệ thống sẽ kiểm tra và tự động tải về bản cập nhật nếu có.</div>
+                  </div>
+                  <button 
+                    onClick={async () => {
+                      try {
+                        const res = await (window as any).electronAPI.checkUpdate();
+                        alert(res.message);
+                      } catch (e: any) {
+                        alert('Lỗi: ' + e.message);
+                      }
+                    }}
+                    style={{ background: 'var(--accent)', color: '#000', padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 500 }}>
+                    🔄 Kiểm tra ngay
+                  </button>
+                </div>
               </div>
             </div>
           )}

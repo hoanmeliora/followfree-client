@@ -46,6 +46,7 @@ export function LoginPage({ onLogin }: Props) {
         <div className="titlebar-drag" />
         <div className="titlebar-controls">
           <button onClick={() => window.electronAPI?.minimizeWindow()} className="ctrl-btn minimize">─</button>
+          <button onClick={() => window.electronAPI?.maximizeWindow()} className="ctrl-btn maximize">🗖</button>
           <button onClick={() => window.electronAPI?.hideWindow()} className="ctrl-btn close">✕</button>
         </div>
       </div>

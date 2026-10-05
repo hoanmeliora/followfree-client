@@ -762,6 +762,10 @@ function setupIpcHandlers(
 
   // Window controls
   ipcMain.on('window:minimize', () => mainWindow?.minimize())
+  ipcMain.on('window:maximize', () => {
+    if (mainWindow?.isMaximized()) mainWindow?.unmaximize()
+    else mainWindow?.maximize()
+  })
   ipcMain.on('window:hide', () => mainWindow?.hide())
   ipcMain.on('window:close', () => mainWindow?.hide())
 }
@@ -814,6 +818,20 @@ app.whenReady().then(async () => {
       console.log('Update Error:', err)
     })
   }
+
+  ipcMain.handle('app:checkUpdate', async () => {
+    if (isDev) return { success: false, message: 'Tính năng cập nhật bị vô hiệu hóa trong môi trường Dev' }
+    try {
+      const result = await autoUpdater.checkForUpdates()
+      if (result && result.updateInfo && result.updateInfo.version !== app.getVersion()) {
+         return { success: true, message: `Đã tìm thấy bản cập nhật v${result.updateInfo.version}! Đang tải xuống ngầm...` }
+      } else {
+         return { success: true, message: 'Bạn đang dùng phiên bản mới nhất!' }
+      }
+    } catch (err: any) {
+      return { success: false, message: 'Lỗi kiểm tra cập nhật: ' + err.message }
+    }
+  })
 
   // Auto-start worker if already logged in
   const session = storeService.getSession()
