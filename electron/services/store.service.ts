@@ -93,6 +93,18 @@ export class StoreService {
     (this.store as any).set('appSettings', settings)
   }
 
+  getGroupBlacklist(): string[] {
+    return (this.store as any).get('groupBlacklist') ?? [];
+  }
+
+  addToGroupBlacklist(urlOrId: string): void {
+    const list = this.getGroupBlacklist();
+    if (!list.includes(urlOrId)) {
+      list.push(urlOrId);
+      (this.store as any).set('groupBlacklist', list);
+    }
+  }
+
   getAccounts(): SocialAccount[] {
     return ((this.store as any).get('accounts') as SocialAccount[]) ?? []
   }

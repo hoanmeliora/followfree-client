@@ -41,7 +41,7 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
   const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '' })
   const [passwordError, setPasswordError] = useState('')
   const [activeTab, setActiveTab] = useState<'dashboard' | 'accounts' | 'campaigns' | 'deposits' | 'emails' | 'autoreg' | 'autopost' | 'settings'>('dashboard')
-  const [appSettings, setAppSettings] = useState({ runHeadless: false })
+  const [appSettings, setAppSettings] = useState({ runHeadless: false, autoJoinKeywords: '' })
 
   const addLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {
     const time = new Date().toLocaleTimeString('vi-VN')
@@ -120,6 +120,14 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
     }
   }
 
+  const saveSettingsField = async (key: string, value: any) => {
+    const newSettings = { ...appSettings, [key]: value };
+    setAppSettings(newSettings);
+    if (window.electronAPI?.updateSettings) {
+      await window.electronAPI.updateSettings(newSettings);
+    }
+  }
+
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault()
     setPasswordError('')
@@ -141,7 +149,7 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
     <div className="dashboard-root">
       {/* Custom Titlebar */}
       <div className="titlebar">
-        <div className="brand-mini">⚡ FollowFree <span style={{fontSize: '11px', color: 'var(--text-muted)', marginLeft: '4px'}}>v0.1.0</span></div>
+        <div className="brand-mini">⚡ FollowFree <span style={{fontSize: '11px', color: 'var(--text-muted)', marginLeft: '4px'}}>v0.2.0</span></div>
         <div className="titlebar-drag" />
         <div className="titlebar-controls">
           <button onClick={() => window.electronAPI?.minimizeWindow()} className="ctrl-btn">─</button>
@@ -394,7 +402,7 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
                   <input 
                     type="checkbox" 
                     checked={appSettings.runHeadless} 
-                    onChange={toggleHeadless} 
+                    onChange={(e) => saveSettingsField('runHeadless', e.target.checked)} 
                     style={{ width: '18px', height: '18px', accentColor: 'var(--accent)' }}
                   />
                   <div>
@@ -402,6 +410,56 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
                     <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 300 }}>Khi bật tính năng này, bot sẽ chạy ẩn ở dưới nền giúp tiết kiệm RAM đáng kể. Tắt đi nếu bạn muốn xem trực tiếp màn hình bot đang tương tác.</div>
                   </div>
                 </label>
+              </div>
+
+              <div style={{ 
+                background: 'rgba(255,255,255,0.02)', 
+                padding: '24px', 
+                borderRadius: '12px', 
+                border: '1px solid var(--border)',
+                backdropFilter: 'blur(10px)',
+                marginTop: '20px'
+              }}>
+                <h3 style={{ fontSize: '14px', marginBottom: '16px', fontWeight: 400, color: 'var(--accent)' }}>Tự động Tham gia Nhóm (Zero-Touch)</h3>
+                
+                <div style={{ padding: '12px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 400, marginBottom: '8px' }}>Từ khoá tìm kiếm nhóm (Cách nhau bằng dấu phẩy)</div>
+                  <input 
+                    type="text" 
+                    value={appSettings.autoJoinKeywords || ''} 
+                    onChange={(e) => saveSettingsField('autoJoinKeywords', e.target.value)}
+                    placeholder="VD: sinh viên, bất động sản, kiếm tiền online, marketing..."
+                    style={{ width: '100%', padding: '10px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', borderRadius: '6px', color: '#fff', fontSize: '13px' }}
+                  />
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px', fontWeight: 300 }}>
+                    Hệ thống sẽ dùng các từ khoá này để tự động tìm và xin vào nhóm trong lúc nuôi nick. Chỉ những nhóm <b>{'>10.000'} thành viên</b> mới được tham gia.
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ 
+                background: 'rgba(255,255,255,0.02)', 
+                padding: '24px', 
+                borderRadius: '12px', 
+                border: '1px solid var(--border)',
+                backdropFilter: 'blur(10px)',
+                marginTop: '20px'
+              }}>
+                <h3 style={{ fontSize: '14px', marginBottom: '16px', fontWeight: 400, color: 'var(--accent)' }}>Tự động Tham gia Nhóm (Zero-Touch)</h3>
+                
+                <div style={{ padding: '12px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 400, marginBottom: '8px' }}>Từ khoá tìm kiếm nhóm (Cách nhau bằng dấu phẩy)</div>
+                  <input 
+                    type="text" 
+                    value={appSettings.autoJoinKeywords || ''} 
+                    onChange={(e) => saveSettingsField('autoJoinKeywords', e.target.value)}
+                    placeholder="VD: sinh viên, bất động sản, kiếm tiền online, marketing..."
+                    style={{ width: '100%', padding: '10px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', borderRadius: '6px', color: '#fff', fontSize: '13px' }}
+                  />
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px', fontWeight: 300 }}>
+                    Hệ thống sẽ dùng các từ khoá này để tự động tìm và xin vào nhóm trong lúc nuôi nick. Chỉ những nhóm <b>{'>10.000'} thành viên</b> mới được tham gia.
+                  </div>
+                </div>
               </div>
 
               <div style={{ 
@@ -781,7 +839,10 @@ function CampaignsTab({ userPoints }: { userPoints: number }) {
 
   const loadCampaigns = useCallback(() => {
     window.electronAPI?.getCampaigns().then((res: any) => {
-      if (res.success) setCampaigns(res.data)
+      if (res.success) {
+          // Lọc bỏ các chiến dịch POST_GROUP vì chúng đã được hiển thị ở tab Auto Post Nhóm
+          setCampaigns(res.data.filter((c: any) => c.actionType !== 'POST_GROUP' && c.actionType !== 'AUTO_POST'));
+      }
     })
   }, [])
 

@@ -3,6 +3,8 @@ import { AutomationService } from '../automation.service'
 import { SelfHealingService } from '../self-healing.service'
 import { IPlatformExecutor } from './platform-executor.interface'
 
+import { StoreService } from '../store.service'
+
 export class FacebookExecutor implements IPlatformExecutor {
   readonly platform = 'FACEBOOK'
 
@@ -12,6 +14,7 @@ export class FacebookExecutor implements IPlatformExecutor {
   constructor(
     private readonly automationService: AutomationService,
     private readonly selfHealingService: SelfHealingService,
+    private readonly store?: StoreService
   ) {}
 
   async performAction(page: Page, task: any, account?: any): Promise<boolean | string> {
@@ -112,7 +115,11 @@ export class FacebookExecutor implements IPlatformExecutor {
                   const text = await span.textContent();
                   if (text && text.trim().length > 0 && text.trim().length < 60) {
                       const t = text.toLowerCase();
-                      if (!t.includes('thông báo') && !t.includes('cài đặt') && !t.includes('đăng xuất') && !t.includes('trợ giúp') && !t.includes('xem tất cả') && !t.includes('quảng cáo')) {
+                      // Lọc menu items
+                      const isMenuItem = t.includes('thông báo') || t.includes('cài đặt') || t.includes('đăng xuất') || t.includes('trợ giúp') || t.includes('xem tất cả') || t.includes('quảng cáo') || t.includes('select profile') || t.includes('chọn trang cá nhân') || t.includes('chọn trang') || t.includes('tạo trang') || t.includes('create page');
+                      // Lọc chuỗi thông báo số lượng kiểu "1 unseen updates", "2 notifications", "3 tin nhắn"
+                      const isNotificationCount = /\d+\s*(unseen|notification|update|tin nh\u1eafn|th\u00f4ng b\u00e1o|ho\u1ea1t \u0111\u1ed9ng)/i.test(t);
+                      if (!isMenuItem && !isNotificationCount) {
                           validProfiles.push(span);
                       }
                   }
@@ -166,7 +173,9 @@ export class FacebookExecutor implements IPlatformExecutor {
                               const text = await span.textContent();
                               if (text && text.trim().length > 0 && text.trim().length < 60) {
                                   const t = text.toLowerCase();
-                                  if (!t.includes('thông báo') && !t.includes('cài đặt') && !t.includes('đăng xuất') && !t.includes('trợ giúp') && !t.includes('xem tất cả') && !t.includes('quảng cáo')) {
+                                  const isMenuItem = t.includes('thông báo') || t.includes('cài đặt') || t.includes('đăng xuất') || t.includes('trợ giúp') || t.includes('xem tất cả') || t.includes('quảng cáo');
+                                  const isNotificationCount = /\d+\s*(unseen|notification|update|tin nhắn|thông báo|hoạt động)/i.test(t);
+                                  if (!isMenuItem && !isNotificationCount) {
                                       valids.push(span);
                                   }
                               }
@@ -194,21 +203,21 @@ export class FacebookExecutor implements IPlatformExecutor {
                           await uniqueValids[1].click({ force: true });
                       }
                       await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 }).catch(() => {});
-                      await this.automationService.wait(8000);
+                      await this.automationService.wait(4000); // Giảm từ 8s xuống 4s
                   }
               } else {
                   console.log('[Facebook] Đang ở sẵn Nick chính!');
-                  // Lấy tên Nick chính
-                  await page.goto('https://www.facebook.com/');
-                  await this.automationService.wait(3000);
-                  await this.automationService.simulateHumanClick(page, 'svg[aria-label="Trang cá nhân của bạn"], svg[aria-label="Your profile"]', { index: 'last' });
-                  await this.automationService.wait(1500);
-                  const activeProfile = page.locator('div[role="radio"][aria-checked="true"], div[role="menuitemradio"][aria-checked="true"]').first();
-                  mainName = await activeProfile.textContent() || 'Unknown';
+                  // Lấy tên Nick chính từ uniqueProfiles[0] (tên đầu tiên trong menu là nick đang hoạt động)
+                  // Đây là cách đáng tin cậy hơn là dùng aria-checked (FB mới không dùng nữa)
                   await page.keyboard.press('Escape');
               }
 
-              state = { mainAccountName: mainName, pageIndex: 0, tasksDone: 0, maxTasks: 10 + Math.floor(Math.random() * 3) };
+              state = { 
+                  mainAccountName: mainName, 
+                  pageIndex: 0, 
+                  tasksDone: 0, 
+                  maxTasks: 10 + Math.floor(Math.random() * 3)
+              };
               this.accountPageState[accountId] = state;
               console.log(`[Facebook] ✅ Đã lưu bộ nhớ Nick chính là: "${mainName}"`);
               
@@ -217,10 +226,23 @@ export class FacebookExecutor implements IPlatformExecutor {
           }
 
           // Tạo danh sách CHỈ CHỨA PAGE bằng cách loại bỏ Nick chính
+          // Lấy mainAccountName từ uniqueProfiles[0] nếu chưa có (chưa biết tên chính xác)
+          let mainAccountName = state.mainAccountName || '';
+          if (!mainAccountName || mainAccountName === 'Unknown') {
+              mainAccountName = (await uniqueProfiles[0].textContent())?.trim() || 'Unknown';
+              state.mainAccountName = mainAccountName;
+              console.log(`[Facebook] Tự động xác định Nick chính từ vị trí [0]: "${mainAccountName}"`);
+          }
+
           const pagesOnly: any[] = [];
-          for (const p of uniqueProfiles) {
-              const name = await p.textContent();
-              if (name !== state.mainAccountName) {
+          for (let i = 0; i < uniqueProfiles.length; i++) {
+              const p = uniqueProfiles[i];
+              const name = (await p.textContent())?.trim() || '';
+              
+              // name.includes(mainAccountName): kiểm tra xuôi — tên hiển thị có chứa tên nick chính không
+              // (ví dụ: "GHỆ ch hàng" có "1 notification" đính kèm, nhưng đó là Page, không phải Nick chính)
+              const isMain = name.includes(mainAccountName) || mainAccountName.includes(name);
+              if (!isMain) {
                   pagesOnly.push(p);
               }
           }
@@ -245,19 +267,31 @@ export class FacebookExecutor implements IPlatformExecutor {
               
               if (isChecked === 'true' || isChecked === 'mixed' || hasCheckmark) {
                   console.log(`[Facebook] Đã ở tư cách Page (${profileName}), sẵn sàng làm nhiệm vụ (Đã cày ${state.tasksDone}/${state.maxTasks} bài).`);
-                  state.tasksDone++;
                   await page.keyboard.press('Escape');
                   return true;
               }
 
               console.log(`[Facebook] Đang click chuyển sang Page: ${profileName}... (Bắt đầu lô ${state.maxTasks} bài)`);
               
-              // Dùng toạ độ chuột để click chắc chắn 100%
-              const targetBox = await targetProfile.boundingBox();
-              if (targetBox) {
-                  await page.mouse.click(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2);
-              } else {
-                  await targetProfile.click({ force: true });
+              try {
+                  // Leo lên thẻ cha có role radio/button từ chính cái span đã lấy được (XPath ancestor)
+                  // Đây là cách chính xác nhất, tránh click nhầm vì FB đánh pointer-events:none trên span
+                  const clickable = targetProfile.locator('xpath=ancestor::div[@role="radio" or @role="menuitemradio" or @role="button" or @role="listitem"][1]');
+                  const clickableCount = await clickable.count();
+                  if (clickableCount > 0) {
+                      await clickable.first().click({ force: true });
+                  } else {
+                      // Fallback: dùng tọa độ chuột trực tiếp
+                      const targetBox = await targetProfile.boundingBox();
+                      if (targetBox) {
+                          await page.mouse.click(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2);
+                      } else {
+                          await targetProfile.click({ force: true });
+                      }
+                  }
+              } catch (e) {
+                  console.error(`[Facebook] Lỗi khi click đổi page: ${e}`);
+                  await targetProfile.click({ force: true }).catch(() => {});
               }
               
               state.tasksDone++;
@@ -368,13 +402,28 @@ export class FacebookExecutor implements IPlatformExecutor {
     let successCount = 0;
 
     for (let i = 0; i < groupIds.length; i++) {
-      const groupIdUrl = groupIds[i];
-      console.log(`\n[Facebook] --- Bắt đầu Share vào nhóm ${i + 1}/${groupIds.length}: ${groupIdUrl} ---`);
+      let rawGroup = groupIds[i];
+      
+      if (!rawGroup.includes('facebook.com') && !/^\d+$/.test(rawGroup)) {
+          console.log(`[Facebook] Phát hiện Từ khoá: ${rawGroup}. Đang càn quét tìm TẤT CẢ nhóm...`);
+          let foundUrls = await this.resolveKeywordToGroupUrls(page, rawGroup, 9999); // KHÔNG GIỚI HẠN
+          if (foundUrls.length > 0) {
+              console.log(`[Facebook] 🔥 SIÊU CẤP: Đã quét được tổng cộng ${foundUrls.length} nhóm cho từ khoá "${rawGroup}"! Đang nhét toàn bộ vào hàng đợi...`);
+              groupIds.splice(i, 1, ...foundUrls);
+              rawGroup = groupIds[i];
+          } else {
+              console.log(`[Facebook] Không tìm thấy nhóm phù hợp (>= 10k thành viên) cho từ khoá: ${rawGroup}`);
+              continue;
+          }
+      }
+      
+      const resolvedUrl = rawGroup;
+      console.log(`\n[Facebook] --- Bắt đầu Share vào nhóm ${i + 1}/${groupIds.length}: ${resolvedUrl} ---`);
       
       try {
         // 1. Chạy thẳng vào link nhóm để lấy tên Nhóm và check Tham gia
-        console.log(`[Facebook] Truy cập nhóm: ${groupIdUrl}`);
-        await page.goto(groupIdUrl);
+        console.log(`[Facebook] Truy cập nhóm: ${resolvedUrl}`);
+        await page.goto(resolvedUrl);
         await this.automationService.wait(5000);
 
         // KIỂM TRA BẢO MẬT: Nhóm này có ép tráo đổi về Nick chính không?
@@ -744,7 +793,10 @@ export class FacebookExecutor implements IPlatformExecutor {
         });
 
         if (isApprovalRequired) {
-            console.log(`[Facebook] ⚠️ BỎ QUA: Nhóm "${groupName}" yêu cầu Quản trị viên phê duyệt bài viết! (Chống lãng phí tương tác)`);
+            console.log(`[Facebook] ⚠️ BỎ QUA: Nhóm "${groupName}" yêu cầu Quản trị viên phê duyệt bài viết! Đưa vào Danh sách đen...`);
+            if (this.store) {
+                 this.store.addToGroupBlacklist(resolvedUrl);
+            }
             await page.keyboard.press('Escape');
             await this.automationService.wait(1000);
             await page.keyboard.press('Escape'); // Nhấn 2 lần cho chắc chắn đóng
@@ -861,7 +913,7 @@ export class FacebookExecutor implements IPlatformExecutor {
                    }
                }
 
-               console.log(`[Facebook] Chia sẻ thành công nhóm ${groupIdUrl}!`);
+               console.log(`[Facebook] Chia sẻ thành công nhóm ${resolvedUrl}!`);
                successCount++;
                posted = true;
                await this.automationService.wait(5000);
@@ -875,7 +927,7 @@ export class FacebookExecutor implements IPlatformExecutor {
         }
 
       } catch (e) {
-        console.error(`[Facebook] Lỗi không xác định khi share nhóm ${groupIdUrl}:`, e);
+        console.error(`[Facebook] Lỗi không xác định khi share nhóm ${rawGroup}:`, e);
       }
 
       // 9. NHỊP NGHỈ VÀ NUÔI NICK TRƯỚC KHI SHARE NHÓM TIẾP THEO
@@ -898,7 +950,208 @@ export class FacebookExecutor implements IPlatformExecutor {
     return successCount > 0;
   }
 
-  async performNurturing(page: Page): Promise<boolean> {
+  private async resolveKeywordToGroupUrls(page: Page, keyword: string, maxResults: number = 9999): Promise<string[]> {
+    if (keyword.includes('facebook.com')) return [keyword];
+    if (/^\d+$/.test(keyword)) return [`https://www.facebook.com/groups/${keyword}`];
+    
+    console.log(`[Facebook] Tìm nhóm cho từ khoá: ${keyword}... (Càn quét toàn bộ kết quả)`);
+    await page.goto(`https://www.facebook.com/groups/search/groups/?q=${encodeURIComponent(keyword)}`);
+    await this.automationService.wait(3000); 
+    
+    // Wait for at least one group link to appear, or timeout
+    try {
+        await page.waitForSelector('a[href*="/groups/"]', { timeout: 8000 });
+    } catch(e) {
+        console.log(`[Facebook] ⚠️ Không tìm thấy kết quả tìm kiếm nào cho từ khoá: ${keyword}`);
+        return [];
+    }
+
+    const validGroups = new Set<string>();
+    let noNewGroupsCount = 0;
+    
+    for (let s = 0; s < 50; s++) { // Cuộn tối đa 50 lần (hàng trăm nhóm)
+        const urls = await page.evaluate(() => {
+            const links = Array.from(document.querySelectorAll('a[href*="/groups/"]'));
+            const found: string[] = [];
+            for (const link of links) {
+                const href = link.getAttribute('href') || '';
+                if (!href.includes('/groups/') || href.includes('/search/') || href.includes('/discover/') || href.includes('/feed/')) continue;
+                
+                let parent = link.parentElement;
+                let text = '';
+                let foundParent: HTMLElement | null = null;
+                for (let i = 0; i < 8; i++) {
+                    if (!parent) break;
+                    const pText = parent.textContent || '';
+                    if (pText.toLowerCase().includes('thành viên') || pText.toLowerCase().includes('members') || pText.toLowerCase().includes('người')) {
+                        text = pText;
+                        foundParent = parent;
+                        break;
+                    }
+                    parent = parent.parentElement;
+                }
+                
+                if (foundParent) {
+                    const match = text.match(/([\d,.]+)\s*(K|M|N|triệu|tr|t)?\s*(members|thành viên|người)/i);
+                    if (match) {
+                        let numStr = match[1];
+                        let num = 0;
+                        const unit = match[2]?.toUpperCase();
+                        if (!unit) {
+                            numStr = numStr.replace(/[.,]/g, '');
+                            num = parseInt(numStr) || 0;
+                        } else {
+                            numStr = numStr.replace(/,/g, '.');
+                            num = parseFloat(numStr) || 0;
+                            if (unit === 'K' || unit === 'N') num *= 1000;
+                            else if (unit === 'M' || unit === 'TRIỆU' || unit === 'TR' || unit === 'T') num *= 1000000;
+                        }
+                        
+                        if (num >= 10000) {
+                            const cleanUrl = href.split('?')[0];
+                            found.push(cleanUrl);
+                        }
+                    }
+                }
+            }
+            return found;
+        });
+
+        let addedNew = false;
+        const blacklist = this.store?.getGroupBlacklist() || [];
+        for (const url of urls) {
+            if (!blacklist.some(b => url.includes(b) || b.includes(url))) {
+                if (!validGroups.has(url)) {
+                    validGroups.add(url);
+                    addedNew = true;
+                }
+            }
+        }
+
+        if (validGroups.size >= maxResults) break;
+
+        if (addedNew) {
+            noNewGroupsCount = 0;
+            console.log(`[Facebook] Đã quét được ${validGroups.size} nhóm... Cuộn tiếp!`);
+        } else {
+            noNewGroupsCount++;
+            if (noNewGroupsCount >= 3) {
+                console.log(`[Facebook] Hết nhóm mới để lấy (hoặc đã đến cuối trang). Dừng quét.`);
+                break; // 3 lần cuộn không ra nhóm mới thì dừng
+            }
+        }
+
+        await this.automationService.simulateScroll(page, 1500);
+        await this.automationService.wait(1500 + Math.random() * 1000); 
+    }
+
+    return Array.from(validGroups);
+  }
+
+  private async autoJoinGroups(page: Page, keywords: string): Promise<void> {
+    try {
+      if (!keywords || keywords.trim() === '') return;
+      const kwList = keywords.split(',').map(k => k.trim()).filter(k => k.length > 0);
+      if (kwList.length === 0) return;
+      
+      const randomKeyword = kwList[Math.floor(Math.random() * kwList.length)];
+      console.log(`[Facebook Nurturing] Bắt đầu tìm và xin vào nhóm với từ khoá: "${randomKeyword}"`);
+      
+      await page.goto(`https://www.facebook.com/groups/search/groups/?q=${encodeURIComponent(randomKeyword)}`);
+      await this.automationService.wait(5000 + Math.random() * 3000);
+      
+      // Cuộn để load thêm nhóm
+      await this.automationService.simulateScroll(page, 1000);
+      await this.automationService.wait(3000);
+      
+      // Lấy tất cả các thẻ nhóm
+      const urls = await page.evaluate(() => {
+          const links = Array.from(document.querySelectorAll('a[href*="/groups/"]'));
+          const validGroups: string[] = [];
+          
+          for (const link of links) {
+              const href = link.getAttribute('href') || '';
+              if (!href.includes('/groups/') || href.includes('/search/') || href.includes('/discover/') || href.includes('/feed/')) continue;
+              
+              let parent = link.parentElement;
+              let text = '';
+              let foundParent: HTMLElement | null = null;
+              
+              for (let i = 0; i < 8; i++) {
+                  if (!parent) break;
+                  const pText = parent.textContent || '';
+                  if (pText.toLowerCase().includes('thành viên') || pText.toLowerCase().includes('members') || pText.toLowerCase().includes('người')) {
+                      text = pText;
+                      foundParent = parent;
+                      break;
+                  }
+                  parent = parent.parentElement;
+              }
+              
+              if (foundParent) {
+                  const match = text.match(/([\d,.]+)\s*(K|M|N|triệu|tr)?\s*(members|thành viên|người)/i);
+                  if (match) {
+                      let numStr = match[1].replace(/,/g, '.');
+                      let num = parseFloat(numStr);
+                      const unit = match[2]?.toUpperCase();
+                      if (unit === 'K' || unit === 'N') num *= 1000;
+                      else if (unit === 'M' || unit === 'TRIỆU' || unit === 'TR') num *= 1000000;
+                      
+                      if (num >= 10000) {
+                          const cleanUrl = href.split('?')[0];
+                          if (!validGroups.includes(cleanUrl)) {
+                              validGroups.push(cleanUrl);
+                          }
+                      }
+                  }
+              }
+          }
+          return validGroups;
+      });
+
+      console.log(`[Facebook Nurturing] Tìm thấy ${urls.length} nhóm, tiến hành lọc...`);
+      
+      let joinedCount = 0;
+      const blacklist = this.store?.getGroupBlacklist() || [];
+
+      for (let i = 0; i < urls.length; i++) {
+        if (joinedCount >= 2) break; // Tối đa tham gia 2 nhóm 1 lần nuôi
+        
+        const cleanUrl = urls[i];
+        if (blacklist.some(b => cleanUrl.includes(b) || b.includes(cleanUrl))) {
+            console.log(`[Facebook Nurturing] 🚫 Bỏ qua nhóm đã nằm trong Danh sách đen: ${cleanUrl}`);
+            continue;
+        }
+        
+        console.log(`[Facebook Nurturing] Đang mở nhóm: ${cleanUrl}`);
+        await page.goto(cleanUrl, { waitUntil: 'domcontentloaded' });
+        await this.automationService.wait(3000);
+
+        // Tìm nút Join/Tham gia
+        const joinBtn = page.locator('div[role="button"]:has-text("Tham gia"), div[role="button"]:has-text("Join")').first();
+        const btnCount = await joinBtn.count();
+        if (btnCount > 0) {
+              const btnText = await joinBtn.textContent();
+              console.log(`[Facebook Nurturing] Đã mở nhóm mục tiêu. Bấm nút: ${btnText}`);
+              await joinBtn.click();
+              await this.automationService.wait(4000 + Math.random() * 2000);
+              joinedCount++;
+              
+              const closeBtn = page.locator('div[aria-label="Đóng"], div[aria-label="Close"]').first();
+              if (await closeBtn.count() > 0) {
+                await closeBtn.click();
+                await this.automationService.wait(2000);
+              }
+        }
+      }
+      
+      console.log(`[Facebook Nurturing] Hoàn tất xin vào ${joinedCount} nhóm.`);
+    } catch (e) {
+      console.error('[Facebook Nurturing] Lỗi khi tự động xin vào nhóm:', e);
+    }
+  }
+
+  async performNurturing(page: Page, settings?: any): Promise<boolean> {
     try {
       console.log('[Facebook Nurturing] Bắt đầu nuôi nick Facebook...');
       await page.goto('https://www.facebook.com/');
@@ -923,6 +1176,11 @@ export class FacebookExecutor implements IPlatformExecutor {
       for (let i = 0; i < videoScrollCount; i++) {
          await this.automationService.simulateScroll(page, 1000);
          await this.automationService.wait(10000 + Math.random() * 15000);
+      }
+
+      // Tự động tham gia nhóm nếu người dùng có cấu hình từ khoá
+      if (settings && settings.autoJoinKeywords) {
+        await this.autoJoinGroups(page, settings.autoJoinKeywords);
       }
 
       console.log('[Facebook Nurturing] Hoàn tất phiên nuôi.');
@@ -970,25 +1228,30 @@ export class FacebookExecutor implements IPlatformExecutor {
       const MAX_POSTS_PER_SESSION = 3;
 
       while (postsThisSession < MAX_POSTS_PER_SESSION) {
-          let state = this.accountPageState[accountId];
-          if (!state || state.mainAccountName !== null) { 
-              state = { mainAccountName: null, pageIndex: 0, tasksDone: 0, maxTasks: groups.length };
-              this.accountPageState[accountId] = state;
-          }
-
-          const currentIndex = state.tasksDone;
+          const currentIndex = postsThisSession;
           if (currentIndex >= groups.length) {
               console.log('[Facebook] Đã hoàn thành hết số lượng nhóm trong kịch bản POST_GROUP.');
               return true;
           }
 
           let rawGroup = groups[currentIndex];
-          let groupUrl = rawGroup;
-          if (!rawGroup.includes('facebook.com')) {
-             groupUrl = `https://www.facebook.com/groups/${rawGroup}`;
+          
+          if (!rawGroup.includes('facebook.com') && !/^\d+$/.test(rawGroup)) {
+              console.log(`[Facebook] Phát hiện Từ khoá: ${rawGroup}. Đang càn quét tìm TẤT CẢ nhóm...`);
+              let foundUrls = await this.resolveKeywordToGroupUrls(page, rawGroup, 9999); 
+              if (foundUrls.length > 0) {
+                  console.log(`[Facebook] 🔥 SIÊU CẤP: Đã quét được tổng cộng ${foundUrls.length} nhóm cho từ khoá "${rawGroup}"! Đang nhét toàn bộ vào hàng đợi...`);
+                  groups.splice(currentIndex, 1, ...foundUrls);
+                  rawGroup = groups[currentIndex]; 
+              } else {
+                  console.log(`[Facebook] Không tìm thấy nhóm phù hợp (>= 10k thành viên) cho từ khoá: ${rawGroup}`);
+                  groups.splice(currentIndex, 1);
+                  continue;
+              }
           }
 
-          console.log(`[Facebook] [${postsThisSession + 1}/${MAX_POSTS_PER_SESSION}] Đang vào nhóm để đăng bài: ${groupUrl}`);
+          let groupUrl = rawGroup;
+          console.log(`[Facebook] [${currentIndex + 1}/${groups.length}] Đang vào nhóm để đăng bài: ${groupUrl}`);
           await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
           await this.automationService.wait(4000);
 
@@ -1006,7 +1269,7 @@ export class FacebookExecutor implements IPlatformExecutor {
 
           if (membershipState === 'PENDING') {
             console.log('[Facebook] Nhóm đang chờ phê duyệt, bỏ qua...');
-            state.tasksDone++;
+            groups.splice(currentIndex, 1);
             continue;
           }
 
@@ -1065,16 +1328,35 @@ export class FacebookExecutor implements IPlatformExecutor {
           }
 
           if (!clickedBox) {
-              const boxText = page.locator('span').filter({ hasText: /viết gì đi|write something|tạo bài viết/i }).first();
-              if (await boxText.isVisible()) {
+              const boxText = page.locator('span, div[role="button"]').filter({ hasText: /viết gì đi|write something|tạo bài viết|create a public post/i }).first();
+              if (await boxText.isVisible().catch(() => false)) {
                   await boxText.click();
                   clickedBox = true;
               }
           }
 
+          if (clickedBox) {
+              await this.automationService.wait(2000);
+              // Kiểm tra xem nhóm có yêu cầu phê duyệt không
+              const requiresApproval = await page.evaluate(() => {
+                 const texts = Array.from(document.querySelectorAll('span, div')).map(el => (el.textContent || '').toLowerCase());
+                 return texts.some(t => t.includes('phê duyệt') || t.includes('approval') || t.includes('admin review'));
+              });
+              
+              if (requiresApproval) {
+                  console.log(`[Facebook] ⚠️ Nhóm ${groupUrl} yêu cầu QUẢN TRỊ VIÊN PHÊ DUYỆT bài viết! Đưa vào Danh sách đen toàn hệ thống...`);
+                  if (this.store) {
+                      this.store.addToGroupBlacklist(groupUrl);
+                  }
+                  await page.keyboard.press('Escape');
+                  groups.splice(currentIndex, 1);
+                  continue;
+              }
+          }
+
           if (!clickedBox) {
               console.error('[Facebook] Không tìm thấy ô đăng bài trong nhóm. Có thể nhóm đóng hoặc bị cấm đăng. Bỏ qua nhóm này...');
-              state.tasksDone++;
+              groups.splice(currentIndex, 1);
               continue;
           }
 
@@ -1096,7 +1378,7 @@ export class FacebookExecutor implements IPlatformExecutor {
               await this.automationService.wait(2000);
           } else {
               console.error('[Facebook] Không tìm thấy vùng nhập văn bản (Editor). Bỏ qua nhóm này...');
-              state.tasksDone++;
+              groups.splice(currentIndex, 1);
               continue;
           }
 
@@ -1153,17 +1435,17 @@ export class FacebookExecutor implements IPlatformExecutor {
               console.log('[Facebook] Bấm Đăng thành công. Đang đợi xác nhận...');
               await editorLoc.waitFor({ state: 'hidden', timeout: 15000 }).catch(() => {});
               await this.automationService.wait(3000);
-              state.tasksDone++;
               postsThisSession++;
+              groups.splice(currentIndex, 1); // Xóa khỏi danh sách sau khi đăng thành công
               
-              if (postsThisSession < MAX_POSTS_PER_SESSION && state.tasksDone < groups.length) {
+              if (postsThisSession < MAX_POSTS_PER_SESSION && groups.length > 0) {
                  const randomDelay = Math.floor(Math.random() * 40000) + 20000; // 20s - 60s
                  console.log(`[Facebook] Đã đăng ${postsThisSession}/${MAX_POSTS_PER_SESSION} bài. Nghỉ ngơi ${Math.round(randomDelay/1000)} giây trước khi đăng tiếp...`);
                  await this.automationService.wait(randomDelay);
               }
           } else {
               console.error('[Facebook] Nút Đăng không sáng hoặc không tìm thấy. Bỏ qua nhóm này...');
-              state.tasksDone++;
+              groups.splice(currentIndex, 1);
               continue;
           }
       }

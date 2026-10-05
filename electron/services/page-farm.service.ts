@@ -229,10 +229,24 @@ export class PageFarmService {
                catInput = page.locator('input[aria-label*="Hạng mục"], input[aria-label*="Category"]').first();
             }
             await catInput.click();
+            await this.automation.wait(500);
             await page.keyboard.type(randomCat, { delay: this.automation.randomWait(100, 200) });
-            await this.automation.wait(2000); // Chờ Facebook gọi API tìm Category
-            await page.keyboard.press('ArrowDown');
-            await page.keyboard.press('Enter');
+            await this.automation.wait(3000); // Chờ Facebook gọi API tìm Category (tăng lên 3s)
+            
+            // Click vào mục đầu tiên trong dropdown (tin cậy hơn ArrowDown + Enter)
+            const dropdownOption = page.locator('[role="option"], [role="listitem"], ul[role="listbox"] li, div[role="menuitem"]').first();
+            try {
+                await dropdownOption.waitFor({ state: 'visible', timeout: 5000 });
+                await dropdownOption.click();
+                this.log('Chọn Category từ dropdown thành công!');
+            } catch {
+                // Fallback: thử dùng phím
+                await page.keyboard.press('ArrowDown');
+                await this.automation.wait(300);
+                await page.keyboard.press('Enter');
+                this.log('Chọn Category bằng phím (fallback).');
+            }
+            await this.automation.wait(1000);
 
             this.log(`Nhập tiểu sử (Bio): ${randomBio}`);
             let bioInput = page.getByLabel(/Tiểu sử|Bio/i).first();
@@ -241,6 +255,7 @@ export class PageFarmService {
             }
             await bioInput.click();
             await page.keyboard.type(randomBio, { delay: this.automation.randomWait(100, 200) });
+            await this.automation.wait(500);
 
             this.log('Bấm nút Tạo Trang...');
             const createBtn = page.locator('div[role="button"]').filter({ hasText: /Tạo Trang|Create Page/i });
@@ -249,6 +264,13 @@ export class PageFarmService {
             // Chờ Facebook xử lý
             this.log('Đang chờ Facebook duyệt Page (Khoảng 10-15s)...');
             await this.automation.wait(10000);
+            
+            // Kiểm tra xem có lỗi không
+            const errorVisible = await page.getByText(/An error occurred|xảy ra lỗi|not available|không khả dụng|policies/i).isVisible().catch(() => false);
+            if (errorVisible) {
+                this.log('Facebook từ chối tạo Page (Policy Error). Tài khoản này có thể bị hạn chế.');
+                return { success: false, msg: 'Facebook từ chối tạo Page do vi phạm chính sách hoặc tài khoản bị hạn chế.' };
+            }
 
             // 8. Tải Avatar
             if (avatarPath) {

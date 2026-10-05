@@ -21,5 +21,5 @@ export interface IPlatformExecutor {
    * @param page Playwright Page đã inject cookie, sẵn sàng mô phỏng người dùng.
    * @returns true nếu hoàn thành việc nuôi.
    */
-  performNurturing(page: Page): Promise<boolean>
+  performNurturing(page: Page, settings?: any): Promise<boolean>
 }

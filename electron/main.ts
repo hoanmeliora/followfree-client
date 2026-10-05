@@ -837,7 +837,7 @@ app.whenReady().then(async () => {
   const session = storeService.getSession()
   if (session?.token) {
     void accountSyncService.pull()
-    setTimeout(() => workerService?.start(), 3000)
+    // Đã bỏ tính năng auto-start worker theo yêu cầu của user
   }
 
   // Tự động khởi động cùng hệ điều hành (chạy ngầm)

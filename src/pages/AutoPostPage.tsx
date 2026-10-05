@@ -39,7 +39,23 @@ export default function AutoPostPage({ addLog, session }: Props) {
     e.preventDefault();
     setStatusMsg(null);
     const groups = groupIds.split('\n').map((g: string) => g.trim()).filter((g: string) => g);
-    if (groups.length === 0) return alert('Vui lòng nhập ít nhất 1 Group ID');
+    if (groups.length === 0) return alert('Vui lòng nhập ít nhất 1 Group ID hoặc Từ khóa');
+
+    const BLACKLIST = [
+      'vay', 'tín dụng', 'bốc bát', 'bát họ', 'cầm đồ', 'cho vay',
+      'tài xỉu', 'cá độ', 'nhà cái', 'đá gà', 'lô đề', 'nổ hũ', 'casino', 'bet',
+      'lừa đảo', 'phản động', 'chính trị', 'đánh bạc', 'sex', '18+'
+    ];
+
+    const violatedKeywords = groups.filter(g => {
+      const gLower = g.toLowerCase();
+      return BLACKLIST.some(bw => gLower.includes(bw));
+    });
+
+    if (violatedKeywords.length > 0) {
+      alert(`Từ khoá không hợp lệ! Vui lòng loại bỏ: ${violatedKeywords.join(', ')}`);
+      return;
+    }
 
     const metadata: any = {
       schedule: {
@@ -72,9 +88,10 @@ export default function AutoPostPage({ addLog, session }: Props) {
         addLog(`❌ Lỗi: ${res.error}`, 'error');
         setStatusMsg({ text: `Lỗi: ${res.error}`, type: 'error' });
       } else {
-        addLog(`✅ Đã lên lịch thành công cho ${groups.length} nhóm!`, 'success');
-        setStatusMsg({ text: `Đã lên lịch thành công cho ${groups.length} nhóm! Cứ mỗi ${interval} phút Bot sẽ chạy 1 lần.`, type: 'success' });
-        // Khởi chạy thành công không xóa form để lưu lại cho lần sau
+        addLog(`✅ Đã lên lịch thành công cho ${groups.length} từ khoá!`, 'success');
+        setStatusMsg({ text: `Đã lên lịch thành công cho ${groups.length} từ khoá! Cứ mỗi ${interval} phút Bot sẽ chạy 1 lần.`, type: 'success' });
+        // Khởi động bot luôn để người dùng thấy nó chạy
+        await window.electronAPI?.startWorker?.();
       }
     } catch (err: any) {
       addLog(`❌ Lỗi hệ thống: ${err.message}`, 'error');
@@ -248,12 +265,12 @@ export default function AutoPostPage({ addLog, session }: Props) {
         )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>👥 Danh sách UID/Link Nhóm (Mỗi nhóm 1 dòng):</label>
+          <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>🎯 Danh sách từ khoá tìm nhóm (Mỗi từ khoá 1 dòng):</label>
           <textarea 
             rows={5}
             value={groupIds} 
             onChange={e => setGroupIds(e.target.value)} 
-            placeholder="Ví dụ:&#10;https://www.facebook.com/groups/123456789&#10;https://www.facebook.com/groups/987654321" 
+            placeholder="Ví dụ:&#10;sinh viên&#10;bất động sản&#10;kiếm tiền online" 
             required 
             style={{
               width: '100%', padding: '12px 14px', background: 'var(--bg-primary)',

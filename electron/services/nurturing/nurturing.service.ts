@@ -85,7 +85,8 @@ export class NurturingService {
         throw new Error(`Không tìm thấy executor cho platform ${accountToNurture.platform}`)
       }
 
-      const success = await executor.performNurturing(this.currentPage)
+      const settings = this.store.getSettings();
+      const success = await executor.performNurturing(this.currentPage, settings)
       
       if (success && this.isNurturing) {
          this.pushEvent('worker:log', { message: `[Nurturing] ✅ Nuôi thành công: ${accountToNurture.username}` })

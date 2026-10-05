@@ -59,7 +59,7 @@ export class WorkerService {
   private readonly previewService = new TargetPreviewService()
 
   private readonly executorRegistry: Map<string, IPlatformExecutor> = new Map<string, IPlatformExecutor>([
-    ['FACEBOOK', new FacebookExecutor(this.automationService, this.selfHealingService)],
+    ['FACEBOOK', new FacebookExecutor(this.automationService, this.selfHealingService, this.store)],
     ['TIKTOK',   new TikTokExecutor(this.automationService, this.selfHealingService)],
   ])
 
@@ -79,10 +79,20 @@ export class WorkerService {
          return await this.createBrowserContext(accountId, proxyUrl)
       }
     )
+    
+    this.store.onAccountsChanged(() => {
+      this.reportCapacityUpdate()
+    })
   }
 
   async start() {
-    if (this.running) return
+    if (this.running) {
+       // Báo server quét task ngay lập tức để không phải chờ cronjob 10 giây
+       if (this.socket?.connected) {
+          this.socket.emit('request_tasks_now')
+       }
+       return
+    }
     this.running = true
     this.localProxyService.start(8888)
 
@@ -103,6 +113,11 @@ export class WorkerService {
     if (!session?.token) return
     this.connect(session.token)
     this.pushEvent('worker:status', this.getStatus())
+    
+    // Đảm bảo có phản hồi ngay lập tức trên màn hình
+    setTimeout(() => {
+        this.processNextTask();
+    }, 2000);
   }
 
   stop() {
@@ -149,6 +164,8 @@ export class WorkerService {
       console.log('✅ Connected to FollowFree Server')
       this.pushEvent('worker:connected', true)
       this.reportCapacityUpdate()
+      // Yêu cầu task ngay lập tức khi vừa kết nối
+      this.socket?.emit('request_tasks_now')
     })
 
     this.socket.on('disconnect', () => {
@@ -156,10 +173,12 @@ export class WorkerService {
       this.pushEvent('worker:connected', false)
     })
 
-    this.socket.on('new_task', (task: TaskPayload) => {
+    this.socket.on('new_task', async (task: TaskPayload) => {
       this.taskQueue.push(task)
       if (this.nurturingService.isRunning()) {
-         this.nurturingService.stopNurturing()
+         await this.nurturingService.stopNurturing()
+         // Đợi Chromium nhả file lock hoàn toàn để tránh crash khi mở lại profile
+         await new Promise(r => setTimeout(r, 3000))
       }
       this.processNextTask()
     })
@@ -186,7 +205,11 @@ export class WorkerService {
   }
 
   private async processNextTask() {
-    if (!this.running || this.currentTask || this.taskQueue.length === 0) return
+    if (!this.running || this.currentTask) return
+    if (this.taskQueue.length === 0) {
+        this.nurturingService.performIdleNurturing().catch(e => console.error(e))
+        return
+    }
     const task = this.taskQueue.shift()!
 
     // FIX #1: Nếu không có IPv6 VÀ không có proxy → từ chối task để bảo vệ tài khoản
@@ -218,7 +241,7 @@ export class WorkerService {
       const accounts = this.store.getAccounts()
       const doneIds = new Set(task.doneAccountIds || [])
       let matchingAccounts = accounts.filter(
-        (a) => a.platform === task.campaign.platform && a.status === 'ACTIVE' && !doneIds.has(a.id),
+        (a) => (a.platform || '').toUpperCase() === (task.campaign.platform || '').toUpperCase() && a.status === 'ACTIVE' && !doneIds.has(a.id),
       )
 
       if (!this.ipv6Available) {
@@ -233,6 +256,10 @@ export class WorkerService {
       }
 
       if (matchingAccounts.length === 0) {
+        console.log(`[Worker] 🚨 Task ${task.id} bị từ chối do không có tài khoản phù hợp!`);
+        console.log(`[Worker] Danh sách tài khoản hiện có:`, accounts.map((a: any) => ({ platform: a.platform, status: a.status })));
+        console.log(`[Worker] Yêu cầu của task: platform=${task.campaign.platform}, doneIds=`, Array.from(doneIds));
+        
         this.reportTaskResult(task.id, '', false, 'All accounts already participated in this campaign')
         this.finishTask()
         return
@@ -322,7 +349,13 @@ export class WorkerService {
        headless: isHeadless,
        colorScheme: 'dark',
        viewport: { width: 1280, height: 800 },
-       userAgent: accountId ? this.store.getAccounts().find(a => a.id === accountId)?.userAgent || fingerprint.fingerprint.navigator.userAgent : fingerprint.fingerprint.navigator.userAgent,
+       userAgent: (() => {
+           const accUserAgent = accountId ? this.store.getAccounts().find(a => a.id === accountId)?.userAgent : null;
+           if (accUserAgent && !accUserAgent.includes('Mobile') && !accUserAgent.includes('Android') && !accUserAgent.includes('iPhone')) {
+               return accUserAgent;
+           }
+           return fingerprint.fingerprint.navigator.userAgent;
+       })(),
        // channel: 'chrome', // Bỏ qua channel chrome để dùng Chromium nội bộ (ổn định hơn nhiều, không bị treo do CDP)
        args: [
          '--disable-gpu',

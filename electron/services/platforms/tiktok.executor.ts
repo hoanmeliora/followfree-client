@@ -73,7 +73,7 @@ export class TikTokExecutor implements IPlatformExecutor {
     return false
   }
 
-  async performNurturing(page: Page): Promise<boolean> {
+  async performNurturing(page: Page, settings?: any): Promise<boolean> {
     try {
       console.log('[TikTok Nurturing] Bắt đầu nuôi nick TikTok...');
       await page.goto('https://www.tiktok.com/foryou');
