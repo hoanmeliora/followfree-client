@@ -15,6 +15,7 @@ const AutoRegPage: React.FC<{ goToAccounts?: () => void }> = ({ goToAccounts }) 
   });
   const [proxy, setProxy] = useState(() => localStorage.getItem('autoreg_proxy') || '');
   const [platform, setPlatform] = useState(() => localStorage.getItem('autoreg_platform') || 'facebook');
+  const [fbRegMethod, setFbRegMethod] = useState<'domain' | 'gmail'>(() => (localStorage.getItem('autoreg_fb_method') as any) || 'domain');
   
   const [status, setStatus] = useState('idle');
   const [progress, setProgress] = useState(0);
@@ -31,7 +32,8 @@ const AutoRegPage: React.FC<{ goToAccounts?: () => void }> = ({ goToAccounts }) 
     localStorage.setItem('autoreg_proxy', proxy);
     localStorage.setItem('autoreg_platform', platform);
     localStorage.setItem('autoreg_gmail_id', selectedGmailId);
-  }, [domain, count, delay, proxy, platform, selectedGmailId]);
+    localStorage.setItem('autoreg_fb_method', fbRegMethod);
+  }, [domain, count, delay, proxy, platform, selectedGmailId, fbRegMethod]);
 
   const logEndRef = useRef<HTMLDivElement>(null);
 
@@ -145,6 +147,11 @@ const AutoRegPage: React.FC<{ goToAccounts?: () => void }> = ({ goToAccounts }) 
       setLogs(prev => [...prev, '[Lỗi] Bắt buộc phải chọn 1 tài khoản Gmail!']);
       return;
     }
+    
+    if (platform === 'facebook' && fbRegMethod === 'gmail' && !selectedGmailId) {
+      setLogs(prev => [...prev, '[Lỗi] Vui lòng chọn 1 tài khoản Gmail để dùng tính năng Mẹo Dấu Chấm!']);
+      return;
+    }
 
     // Tạm thời không cộng dồn ở đây, chỉ lưu lại ngày để kiểm tra
     localStorage.setItem('autoreg_daily_data_date_only', JSON.stringify({
@@ -158,7 +165,7 @@ const AutoRegPage: React.FC<{ goToAccounts?: () => void }> = ({ goToAccounts }) 
     try {
       if ((window as any).electronAPI) {
         await (window as any).electronAPI.autoRegStart({
-          domain,
+          domain: platform === 'facebook' && fbRegMethod === 'gmail' ? 'GMAIL' : domain,
           count,
           delay,
           proxy,
@@ -205,7 +212,27 @@ const AutoRegPage: React.FC<{ goToAccounts?: () => void }> = ({ goToAccounts }) 
           </select>
         </div>
 
-        {platform === 'gmail' && (
+        {platform === 'facebook' && (
+          <div style={{ marginBottom: '15px' }}>
+            <label style={{ display: 'block', marginBottom: '5px', color: '#ccc' }}>Phương Pháp Tạo Tài Khoản</label>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button 
+                type="button"
+                onClick={() => setFbRegMethod('domain')}
+                style={{ flex: 1, padding: '10px', background: fbRegMethod === 'domain' ? '#00b894' : '#16213e', color: '#fff', border: fbRegMethod === 'domain' ? 'none' : '1px solid #444', borderRadius: '4px', cursor: 'pointer', fontWeight: fbRegMethod === 'domain' ? 'bold' : 'normal' }}>
+                🌐 Dùng Tên Miền VIP (Khuyên dùng)
+              </button>
+              <button 
+                type="button"
+                onClick={() => setFbRegMethod('gmail')}
+                style={{ flex: 1, padding: '10px', background: fbRegMethod === 'gmail' ? '#ea4335' : '#16213e', color: '#fff', border: fbRegMethod === 'gmail' ? 'none' : '1px solid #444', borderRadius: '4px', cursor: 'pointer', fontWeight: fbRegMethod === 'gmail' ? 'bold' : 'normal' }}>
+                📧 Dùng Gmail (Mẹo Dấu Chấm)
+              </button>
+            </div>
+          </div>
+        )}
+
+        {(platform === 'gmail' || (platform === 'facebook' && fbRegMethod === 'gmail')) && (
           <>
             <div style={{ marginBottom: '15px' }}>
               <label style={{ display: 'block', marginBottom: '5px', color: '#ccc' }}>Chọn Gmail Clone</label>
@@ -251,14 +278,16 @@ const AutoRegPage: React.FC<{ goToAccounts?: () => void }> = ({ goToAccounts }) 
               )}
             </div>
 
-            <div style={{ marginBottom: '15px', padding: '10px', background: 'rgba(0, 184, 148, 0.1)', borderLeft: '4px solid #00b894', borderRadius: '4px' }}>
-              <p style={{ color: '#00b894', margin: 0, fontSize: '14px', fontWeight: 'bold' }}>
-                🌐 Hệ thống tên miền tự động
-              </p>
-              <p style={{ color: '#ccc', margin: '5px 0 0 0', fontSize: '12px' }}>
-                Tự động lấy tên miền của hệ thống để tạo tài khoản.
-              </p>
-            </div>
+            {platform !== 'facebook' && (
+              <div style={{ marginBottom: '15px', padding: '10px', background: 'rgba(0, 184, 148, 0.1)', borderLeft: '4px solid #00b894', borderRadius: '4px' }}>
+                <p style={{ color: '#00b894', margin: 0, fontSize: '14px', fontWeight: 'bold' }}>
+                  🌐 Hệ thống tên miền tự động
+                </p>
+                <p style={{ color: '#ccc', margin: '5px 0 0 0', fontSize: '12px' }}>
+                  Tự động lấy tên miền của hệ thống để tạo tài khoản.
+                </p>
+              </div>
+            )}
           </>
         )}
 

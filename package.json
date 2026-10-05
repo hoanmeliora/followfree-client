@@ -2,7 +2,7 @@
   "name": "followfree",
   "productName": "FollowFree",
   "private": true,
-  "version": "0.0.8",
+  "version": "0.0.9",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",

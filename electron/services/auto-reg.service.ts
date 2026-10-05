@@ -115,7 +115,7 @@ export class AutoRegService {
     }
 
     private async runLoop() {
-        if (this.platform === 'facebook') {
+        if (this.platform === 'facebook' && this.domain !== 'GMAIL') {
             this.log(`[Auto-Reg] Đang kết nối kho Tên Miền Động VIP...`);
             const supabaseUrl = 'https://qzodbixtfaeexatscxew.supabase.co';
             const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF6b2RiaXh0ZmFlZXhhdHNjeGV3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTExMDYxNzYsImV4cCI6MjEwNjY4MjE3Nn0.MpVDYc1-YFo2Odc3H_llBkkYXItjZ6nubaXAAC6tpgY';
