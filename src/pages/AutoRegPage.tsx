@@ -189,9 +189,9 @@ const AutoRegPage: React.FC<{ goToAccounts?: () => void }> = ({ goToAccounts }) 
   };
 
   return (
-    <div style={{ display: 'flex', gap: '20px' }}>
+    <div style={{ display: 'flex', gap: '20px', height: 'calc(100vh - 110px)', minHeight: '600px' }}>
       {/* CỘT TRÁI: CẤU HÌNH */}
-      <div style={{ flex: 1, background: '#0f3460', padding: '30px', borderRadius: '8px' }}>
+      <div style={{ flex: 1, background: '#0f3460', padding: '30px', borderRadius: '8px', overflowY: 'auto' }}>
         <h2 style={{ marginTop: 0, color: '#e94560', borderBottom: '1px solid #1a1a2e', paddingBottom: '10px' }}>⚙️ Cấu Hình Đăng Ký</h2>
         
         <div style={{ marginBottom: '15px' }}>
@@ -251,14 +251,14 @@ const AutoRegPage: React.FC<{ goToAccounts?: () => void }> = ({ goToAccounts }) 
               )}
             </div>
 
-          {/* TẠM ẨN TÍNH NĂNG TÊN MIỀN CATCH-ALL THEO YÊU CẦU
-            <div style={{ marginBottom: '15px' }}>
-              <label style={{ display: 'block', marginBottom: '5px', color: '#ccc' }}>Tên miền Catch-All (Tùy chọn nâng cao)</label>
-              <input type="text" value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="Để trống nếu muốn dùng Mẹo Dấu Chấm (Dot Trick)"
-                style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #444', background: '#16213e', color: '#fff' }} />
-              <p style={{ margin: '5px 0 0 0', fontSize: '12px', color: '#888' }}>Nếu dùng Tên miền (Catch-All), ngài <strong>VẪN PHẢI</strong> chọn 1 Gmail ở trên. Đảm bảo tên miền đã được trỏ (Email Routing) về Gmail đó để Tool có thể đọc được mã OTP!</p>
+            <div style={{ marginBottom: '15px', padding: '10px', background: 'rgba(0, 184, 148, 0.1)', borderLeft: '4px solid #00b894', borderRadius: '4px' }}>
+              <p style={{ color: '#00b894', margin: 0, fontSize: '14px', fontWeight: 'bold' }}>
+                🌐 Hệ thống tên miền tự động
+              </p>
+              <p style={{ color: '#ccc', margin: '5px 0 0 0', fontSize: '12px' }}>
+                Tự động lấy tên miền của hệ thống để tạo tài khoản.
+              </p>
             </div>
-          */}
           </>
         )}
 
@@ -303,7 +303,7 @@ const AutoRegPage: React.FC<{ goToAccounts?: () => void }> = ({ goToAccounts }) 
       </div>
 
       {/* CỘT PHẢI: LIVE CONSOLE */}
-      <div style={{ flex: 1, background: '#000', padding: '20px', borderRadius: '8px', display: 'flex', flexDirection: 'column', border: '1px solid #333' }}>
+      <div style={{ flex: 1, background: '#000', padding: '20px', borderRadius: '8px', display: 'flex', flexDirection: 'column', border: '1px solid #333', overflow: 'hidden' }}>
         <h3 style={{ marginTop: 0, color: '#00cec9', display: 'flex', justifyContent: 'space-between' }}>
           <span>💻 Live Console</span>
           <span>{progress}%</span>

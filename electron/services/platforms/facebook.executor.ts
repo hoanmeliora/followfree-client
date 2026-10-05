@@ -27,7 +27,7 @@ export class FacebookExecutor implements IPlatformExecutor {
         await this.automationService.wait(4000);
       }
 
-      const actionType = task.campaign.actionType;
+      const actionType = task.campaign.metadata?.realActionType || task.campaign.actionType;
       switch (actionType) {
         case 'LIKE':
           return await this.clickLikeButton(page)

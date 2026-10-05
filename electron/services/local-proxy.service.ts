@@ -29,9 +29,17 @@ export class LocalProxyService {
         clientSocket.pipe(serverSocket)
       })
 
-      serverSocket.on('error', (err) => {
-        // console.error(`Proxy connection error for ${hostname}:`, err.message)
-        clientSocket.end()
+      serverSocket.setTimeout(10000); // Timeout 10s
+      
+      serverSocket.on('timeout', () => {
+        console.error(`Proxy timeout for ${hostname} via ${this.bindIp}`);
+        serverSocket.destroy();
+        clientSocket.end('HTTP/1.1 504 Gateway Timeout\r\n\r\n');
+      });
+
+      serverSocket.on('error', (err: any) => {
+        console.error(`Proxy connection error for ${hostname}:`, err.message)
+        clientSocket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n')
       })
       
       clientSocket.on('error', () => {

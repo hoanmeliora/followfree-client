@@ -72,10 +72,10 @@ export class GmailWebService {
                          || text.match(/mã bảo mật.*?(\\d{5,8})/i)
                          || text.match(/(\\d{5,8})\\s+là mã xác nhận/i)
                          || text.match(/confirmation code.*?(\\d{5,8})/i)
-                         || text.match(/\\b(\\d{5,8})\\b/); // Fallback: 5-8 số bất kỳ trong email mới
+                         || (text.match(/facebook/i) && text.match(/\\b(\\d{5,8})\\b/)); // Chỉ fallback tìm số nếu trên màn hình có chữ Facebook
             
-              if (match && match[1]) {
-                return match[1];
+              if (match && (match[1] || match[2])) {
+                return match[1] || match[2];
               }
               
               // Thử nhấp vào tab/thư mới nếu cần (làm mới trang)

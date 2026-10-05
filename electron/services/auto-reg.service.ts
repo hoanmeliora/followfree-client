@@ -8,6 +8,7 @@ import { BrowserContext, Page } from 'playwright';
 import stealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { GmailWebService } from './gmail-web.service';
 import { GmailApiService } from './gmail-api.service';
+import { SupabaseOtpService } from './supabase-otp.service';
 import { StoreService } from './store.service';
 import { Ipv6Service } from './ipv6.service';
 import { LocalProxyService } from './local-proxy.service';
@@ -18,6 +19,7 @@ export class AutoRegService {
     private isRunning: boolean = false;
     private currentCount: number = 0;
     private targetCount: number = 0;
+    private domainPool: string[] = [];
     private domain: string = '';
     private browserContext: BrowserContext | null = null;
     private browserPage: Page | null = null;
@@ -62,7 +64,7 @@ export class AutoRegService {
         }
     }
 
-    public startReg(config: { count: number; domain: string; proxy?: string; gmailList?: any[]; selectedGmailId?: string; platform?: string }) {
+    public startReg(config: { count: number; domain: string; proxy?: string; gmailList?: any[]; selectedGmailId?: string; platform?: string; delay?: number }) {
         if (this.isRunning) return { success: false, msg: 'Đang chạy rồi' };
 
         this.isRunning = true;
@@ -72,6 +74,7 @@ export class AutoRegService {
         this.domain = config.domain;
         this.proxy = config.proxy || '';
         this.platform = config.platform || 'facebook';
+        (this as any).delay = config.delay || 60;
 
         // Khởi tạo danh sách Gmail xoay vòng
         (this as any).gmailList = config.gmailList || [];
@@ -112,6 +115,33 @@ export class AutoRegService {
     }
 
     private async runLoop() {
+        if (this.platform === 'facebook') {
+            this.log(`[Auto-Reg] Đang kết nối kho Tên Miền Động VIP...`);
+            const supabaseUrl = 'https://qzodbixtfaeexatscxew.supabase.co';
+            const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF6b2RiaXh0ZmFlZXhhdHNjeGV3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTExMDYxNzYsImV4cCI6MjEwNjY4MjE3Nn0.MpVDYc1-YFo2Odc3H_llBkkYXItjZ6nubaXAAC6tpgY';
+            try {
+                const res = await fetch(`${supabaseUrl}/rest/v1/domains?select=name`, {
+                    headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.length > 0) {
+                        this.domainPool = data.map((d: any) => d.name);
+                        this.log(`[Auto-Reg] Đã tải thành công ${this.domainPool.length} tên miền VIP từ Server!`);
+                    } else {
+                        throw new Error('Chưa có tên miền nào trong kho Supabase!');
+                    }
+                } else {
+                    const errText = await res.text();
+                    throw new Error(`Lỗi kết nối Supabase API: ${res.status} - ${errText}`);
+                }
+            } catch (e: any) {
+                this.log(`[Auto-Reg] 🛑 Dừng khẩn cấp: Không thể lấy kho tên miền động (${e.message})`);
+                this.isRunning = false;
+                return;
+            }
+        }
+
         // 0. Khởi tạo Proxy nội bộ (IPv6) nếu người dùng không điền Proxy
         if (!this.proxy || this.proxy.trim() === '') {
             this.log('[Auto-Reg] Đang kiểm tra sóng IPv6 trên mạng Wifi của ngài...');
@@ -147,9 +177,11 @@ export class AutoRegService {
                 }
             }
 
-            // Nghỉ 5s trước khi tạo nick tiếp theo
+            // Nghỉ trước khi tạo nick tiếp theo (theo cấu hình, mặc định 60s)
             if (this.isRunning) {
-                await new Promise(r => setTimeout(r, 5000));
+                const waitTime = ((this as any).delay || 60) * 1000;
+                this.log(`[Auto-Reg] Nghỉ ngơi ${waitTime / 1000}s trước khi tạo nick tiếp theo...`);
+                await new Promise(r => setTimeout(r, waitTime));
             }
         }
         this.isRunning = false;
@@ -170,11 +202,18 @@ export class AutoRegService {
         return true;
     }
 
-    private generateEmail(): string {
+    private generateEmail(usernamePrefix?: string): string {
+        const prefix = usernamePrefix || (Math.random().toString(36).substring(2, 10) + Math.floor(Math.random() * 9999));
+        
+        if (this.domainPool && this.domainPool.length > 0) {
+            const selectedDomain = this.domainPool[Math.floor(Math.random() * this.domainPool.length)];
+            const cleanDomain = selectedDomain.replace('@', '').trim();
+            return `${prefix}@${cleanDomain}`;
+        }
+        
         if (this.domain && this.domain.trim() !== '') {
-            const randomPrefix = Math.random().toString(36).substring(2, 10) + Math.floor(Math.random() * 9999);
             const cleanDomain = this.domain.replace('@', '').trim();
-            return `${randomPrefix}@${cleanDomain}`;
+            return `${prefix}@${cleanDomain}`;
         } else {
             if (!this.gmailAccount || !this.gmailAccount.username || !this.gmailAccount.username.includes('@gmail.com')) {
                 throw new Error('Vui lòng nhập Tên miền Catch-All hoặc chọn một tài khoản Gmail hợp lệ để sử dụng!');
@@ -210,8 +249,12 @@ export class AutoRegService {
         if (this.proxy && this.proxy.trim() !== '') {
             this.log(`[Auto-Reg] Sử dụng Proxy tĩnh: ${this.proxy}`);
             proxyUrl = this.proxy;
+        } else if (process.platform === 'darwin') {
+            // Mac thường bị lỗi routing chặn kết nối từ IP alias nên trình duyệt hay bị trắng tinh
+            this.log(`[Auto-Reg] CẢNH BÁO: Đang chạy trên Mac, bỏ qua IPv6 tàng hình để tránh lỗi mất mạng. Tool sẽ dùng IP THẬT của sếp để tạo nick!`);
+            proxyUrl = undefined;
         } else {
-            // Dùng IPv6 tự động xoay vòng
+            // Dùng IPv6 tự động xoay vòng cho Windows/Linux
             try {
                 const randomIpv6 = this.ipv6Service.generateFixedIpv6ForAccount('autoreg_' + Date.now());
                 const bound = await this.ipv6Service.bindIpToSystem(randomIpv6);
@@ -224,7 +267,8 @@ export class AutoRegService {
                     throw new Error("Không thể bind IPv6, mạng không hỗ trợ");
                 }
             } catch (e: any) {
-                throw new Error(`Để bảo vệ tài khoản, Tool từ chối tạo nick bằng IP thật (do mạng Ethernet/Wifi của sếp không có IPv6). IP thật tạo nick sẽ bị Checkpoint ngay lập tức! Vui lòng nhập Proxy ngoài hoặc đổi sang mạng 4G/Wifi có IPv6.`);
+                this.log(`[Auto-Reg] Không có IPv6, lùi về dùng IP THẬT (Cảnh báo: Dễ Checkpoint).`);
+                proxyUrl = undefined;
             }
         }
 
@@ -324,12 +368,12 @@ export class AutoRegService {
             await new Promise(r => setTimeout(r, 4000));
             this.log('[Auto-Reg] Trang đã tải, bắt đầu bơm dữ liệu giả...');
 
-            // 3.5 Lựa chọn chiến lược sinh Email (Catch-All Domain hoặc Gmail Dot)
-            let email = this.generateEmail();
-            this.log(`[Auto-Reg] Dùng Email (Mẹo Đảo Chấm/Domain): ${email}`);
-
-            // Tạo dữ liệu giả
+            // Tạo dữ liệu giả trước
             const data = this.generateDummyData();
+
+            // 3.5 Lựa chọn chiến lược sinh Email (Catch-All Domain hoặc Gmail Dot)
+            let email = this.generateEmail(data.username);
+            this.log(`[Auto-Reg] Dùng Email (Mẹo Đảo Chấm/Domain): ${email}`);
             this.log(`[Auto-Reg] Thông tin giả lập: ${data.lastName} ${data.firstName} | ${email}`);
 
             // 4. Kịch bản điền form bằng Playwright
@@ -452,8 +496,6 @@ export class AutoRegService {
 
                     // 2.3 Điền Select (Ngày sinh & Giới tính)
                     try {
-                        if (!(this as any).hasFilledCombos) {
-
                         const injectedFill = await this.browserPage.evaluate((d) => {
                             let filled = false;
                             
@@ -470,21 +512,21 @@ export class AutoRegService {
                             
                             // Tìm Select Ngày (chứa các số từ 1-31)
                             const daySel = selects.find(s => s.options.length >= 28 && s.options.length <= 32);
-                            if (daySel && daySel.value !== d.day.toString()) {
+                            if (daySel) {
                                 setReactValue(daySel, d.day.toString());
                                 filled = true;
                             }
                             
                             // Tìm Select Tháng (chứa 12 tháng)
                             const monthSel = selects.find(s => s.options.length >= 12 && s.options.length <= 13);
-                            if (monthSel && monthSel.value !== d.month.toString()) {
+                            if (monthSel) {
                                 setReactValue(monthSel, d.month.toString());
                                 filled = true;
                             }
                             
                             // Tìm Select Năm (chứa nhiều năm, thường > 50)
                             const yearSel = selects.find(s => s.options.length > 50);
-                            if (yearSel && yearSel.value !== d.year.toString()) {
+                            if (yearSel) {
                                 setReactValue(yearSel, d.year.toString());
                                 filled = true;
                             }
@@ -492,7 +534,7 @@ export class AutoRegService {
                             // Tìm Select Giới tính (Female/Male hoặc Nữ/Nam)
                             const targetGenderVal = d.gender === 'male' ? '2' : '1';
                             const genderSel = selects.find(s => s.innerText.includes('Female') || s.innerText.includes('Nữ'));
-                            if (genderSel && genderSel.value !== targetGenderVal) {
+                            if (genderSel) {
                                 let option = Array.from(genderSel.options).find(o => o.value === targetGenderVal);
                                 if (!option && d.gender === 'male') option = Array.from(genderSel.options).find(o => o.text.includes('Male') || o.text.includes('Nam'));
                                 if (!option && d.gender === 'female') option = Array.from(genderSel.options).find(o => o.text.includes('Female') || o.text.includes('Nữ'));
@@ -560,9 +602,6 @@ export class AutoRegService {
                                 await this.browserPage.getByText(data.gender === 'male' ? 'Male' : 'Female', { exact: true }).last().click({ force: true }).catch(()=>{});
                                 didFillSomething = true;
                             }
-                            // Đánh dấu đã chạy hàm dropdown fallback xong (dù thành công hay không, chỉ chạy 1 lần tránh lặp vô hạn)
-                            (this as any).hasFilledCombos = true;
-                        }
                         }
 
                     } catch (e) {
@@ -661,6 +700,22 @@ export class AutoRegService {
                         continue;
                     }
 
+                    // Vượt rào Cảnh báo mềm (Soft Warning) của Facebook về Email
+                    const softWarningLocators = [
+                        this.browserPage.getByText('click to continue', { exact: false }).first(),
+                        this.browserPage.getByText('nhấp để tiếp tục', { exact: false }).first()
+                    ];
+                    for (const loc of softWarningLocators) {
+                        if (await loc.isVisible().catch(() => false)) {
+                            this.log('[Auto-Reg] ⚠️ Phát hiện Cảnh báo Email mạo danh. Đang Force Submit lần 2 để vượt rào...');
+                            const nextBtn = this.browserPage.getByRole('button', { name: /Next|Tiếp|Tiếp tục|Sign Up|Sign up|Đăng ký|Submit/i }).last();
+                            if (await nextBtn.isVisible()) {
+                                await nextBtn.click();
+                                await new Promise(r => setTimeout(r, 2000));
+                            }
+                        }
+                    }
+
 
                     // Không cần khối code "Bấm Đăng ký (Tìm nút Submit bằng Text)" ở đây nữa
                     // Vì luồng mobile đã tự động tìm và bấm nút Submit/Next ở bên trong khối if (didFillSomething) bên trên rồi
@@ -672,7 +727,7 @@ export class AutoRegService {
 
                 } catch (err: any) {
                     this.log(`[Auto-Reg] Lỗi trong vòng lặp Playwright: ${err}`);
-                    if (err.message && (err.message.includes('Lỗi Mạng') || err.message.includes('IP'))) {
+                    if (err.message && (err.message.includes('Lỗi Mạng') || err.message.includes('IP') || err.message.includes('Trùng lặp'))) {
                         throw err; // Thoát vòng lặp ngay lập tức và ném ra ngoài
                     }
                 }
@@ -682,20 +737,14 @@ export class AutoRegService {
                 throw new Error('Kịch bản bị kẹt hoặc quá thời gian (Timeout). Không tới được màn hình OTP.');
             }
 
-            // 5. Đọc OTP bằng GmailWeb (Cookie Automation)
-            this.log(`[Auto-Reg] Đang khởi động Mắt Đọc GmailWeb để tìm mã OTP gửi tới ${email}...`);
+            // 5. Đọc OTP bằng Supabase Worker API (Đã tách khỏi Gmail)
+            this.log(`[Auto-Reg] Đang đợi mã OTP trả về cho ${email} thông qua hệ thống Supabase...`);
             let otp: string | null = null;
-            let gmailService: any;
-
-            if (this.gmailAccount && this.gmailAccount.platform === 'GMAIL_OAUTH') {
-                const parsedData = JSON.parse(this.gmailAccount.cookieData || '{}');
-                const tokenData = parsedData.token ? parsedData.token : parsedData; // Backward compatible
-                gmailService = new GmailApiService(tokenData);
-                otp = await gmailService.fetchLatestOtp(120000, (msg: string) => this.log(msg));
-            } else {
-                gmailService = new GmailWebService(email, this.gmailCookies);
-                otp = await gmailService.fetchLatestOtp(120000, (msg: string) => this.log(msg));
-            }
+            
+            const supabaseUrl = 'https://qzodbixtfaeexatscxew.supabase.co';
+            const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF6b2RiaXh0ZmFlZXhhdHNjeGV3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTExMDYxNzYsImV4cCI6MjEwNjY4MjE3Nn0.MpVDYc1-YFo2Odc3H_llBkkYXItjZ6nubaXAAC6tpgY';
+            const supabaseService = new SupabaseOtpService(email, supabaseUrl, supabaseKey);
+            otp = await supabaseService.fetchLatestOtp(120000, (msg: string) => this.log(msg));
 
             if (!otp) {
                 this.log(`[Auto-Reg] Thử click "Tôi không nhận được mã" để yêu cầu gửi lại OTP...`);
@@ -704,7 +753,7 @@ export class AutoRegService {
 
                 await new Promise(r => setTimeout(r, 5000));
                 this.log(`[Auto-Reg] Đang chờ OTP lần 2 (thêm 120s)...`);
-                otp = await gmailService.fetchLatestOtp(120000, (msg: any) => this.log(msg));
+                otp = await supabaseService.fetchLatestOtp(120000, (msg: any) => this.log(msg));
             }
 
             if (otp) {
@@ -948,7 +997,7 @@ export class AutoRegService {
 
         const randomString = Math.random().toString(36).substring(2, 7);
         const rawUsername = (fn + ln + randomString).toLowerCase();
-        const username = rawUsername.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d");
+        const username = rawUsername.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/\s+/g, "");
 
         return {
             firstName: fn,

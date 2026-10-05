@@ -3,8 +3,10 @@ export class GmailApiService {
   private refreshToken: string;
   private clientId: string = '402293795356-v5jk9tt6sij56188c9qa4asuekodd5vs.apps.googleusercontent.com';
   private clientSecret: string = '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';
+  private targetEmail: string;
 
-  constructor(tokenData: any) {
+  constructor(targetEmail: string, tokenData: any) {
+    this.targetEmail = targetEmail;
     this.accessToken = tokenData.access_token;
     this.refreshToken = tokenData.refresh_token;
   }
@@ -34,7 +36,9 @@ export class GmailApiService {
   }
 
   private async getMessageList(): Promise<any[]> {
-    const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=5&q=in:inbox', {
+    // Chỉ tìm những thư gửi ĐÍCH DANH tới email catch-all hiện tại để tránh lấy nhầm mã OTP của nick trước
+    const query = `in:inbox to:${this.targetEmail}`;
+    const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=5&q=${encodeURIComponent(query)}`, {
       headers: { Authorization: `Bearer ${this.accessToken}` }
     });
     
@@ -109,19 +113,25 @@ export class GmailApiService {
               const content = await this.getMessageContent(msg.id);
               
               // Cào mã OTP (Hỗ trợ 5, 6 hoặc 8 số)
-              const match = content.match(/(?:FB-)?(\d{5,8})\s+is your Facebook confirmation/i) 
-                         || content.match(/FB-(\d{5,8})/i)
-                         || content.match(/mã xác nhận.*?(\d{5,8})/i)
-                         || content.match(/mã bảo mật.*?(\d{5,8})/i)
-                         || content.match(/(\d{5,8})\s+là mã xác nhận/i)
-                         || content.match(/confirmation code.*?(\d{5,8})/i)
-                         || content.match(/\b(\d{5,8})\b/); // Fallback: Lấy chuỗi số bất kỳ trong email (vì mới nhận)
+              // Bỏ thẻ HTML và mã màu hex để tránh nhầm mã màu #050505 thành mã xác nhận 050505
+              let cleanContent = content.replace(/<[^>]*>?/gm, ' ');
+              cleanContent = cleanContent.replace(/#[0-9a-fA-F]{3,6}/g, ' ');
+
+              const match = cleanContent.match(/(?:FB-)?(\d{5,8})\s+is your Facebook confirmation/i) 
+                         || cleanContent.match(/FB-(\d{5,8})/i)
+                         || cleanContent.match(/mã xác nhận.*?(\d{5,8})/i)
+                         || cleanContent.match(/mã bảo mật.*?(\d{5,8})/i)
+                         || cleanContent.match(/(\d{5,8})\s+là mã xác nhận/i)
+                         || cleanContent.match(/confirmation code.*?(\d{5,8})/i)
+                         || (cleanContent.match(/facebook/i) && cleanContent.match(/\b(\d{5,8})\b/)); // Fallback an toàn
                          
-              if (match && match[1] && !isResolved) {
+              const finalOtp = match ? (match[1] || match[2]) : null;
+
+              if (finalOtp && !isResolved) {
                 isResolved = true;
-                log(`[GmailAPI] Tuyệt vời! Đã lấy được OTP siêu tốc qua API: ${match[1]}`);
+                log(`[GmailAPI] Tuyệt vời! Đã lấy được OTP siêu tốc qua API: ${finalOtp}`);
                 clearInterval(checkInterval);
-                resolve(match[1]);
+                resolve(finalOtp);
                 return;
               }
             }

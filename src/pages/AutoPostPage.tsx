@@ -38,7 +38,7 @@ export default function AutoPostPage({ addLog, session }: Props) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setStatusMsg(null);
-    const groups = groupIds.split('\n').map(g => g.trim()).filter(g => g);
+    const groups = groupIds.split('\n').map((g: string) => g.trim()).filter((g: string) => g);
     if (groups.length === 0) return alert('Vui lòng nhập ít nhất 1 Group ID');
 
     const metadata: any = {
