@@ -149,7 +149,7 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
     <div className="dashboard-root">
       {/* Custom Titlebar */}
       <div className="titlebar">
-        <div className="brand-mini">⚡ FollowFree <span style={{fontSize: '11px', color: 'var(--text-muted)', marginLeft: '4px'}}>v0.2.0</span></div>
+        <div className="brand-mini">⚡ FollowFree <span style={{fontSize: '11px', color: 'var(--text-muted)', marginLeft: '4px'}}>v0.1.1</span></div>
         <div className="titlebar-drag" />
         <div className="titlebar-controls">
           <button onClick={() => window.electronAPI?.minimizeWindow()} className="ctrl-btn">─</button>
