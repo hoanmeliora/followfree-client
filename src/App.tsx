@@ -55,6 +55,7 @@ declare global {
       onAutoRegLog: (cb: (e: any, msg: string) => void) => () => void
 
       minimizeWindow: () => void
+      maximizeWindow: () => void
       hideWindow: () => void
       closeWindow: () => void
       on: (channel: string, cb: (...args: any[]) => void) => void
