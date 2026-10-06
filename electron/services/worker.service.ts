@@ -373,7 +373,24 @@ export class WorkerService {
            }
            return fingerprint.fingerprint.navigator.userAgent;
        })(),
-       // channel: 'chrome', // Bỏ qua channel chrome để dùng Chromium nội bộ (ổn định hơn nhiều, không bị treo do CDP)
+       executablePath: (() => {
+           const fs = require('fs');
+           if (process.platform === 'win32') {
+               const paths = [
+                   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+                   'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+                   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
+               ];
+               for (const p of paths) if (fs.existsSync(p)) return p;
+           } else if (process.platform === 'darwin') {
+               const paths = [
+                   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+                   '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'
+               ];
+               for (const p of paths) if (fs.existsSync(p)) return p;
+           }
+           return undefined;
+       })(),
        args: [
          '--disable-gpu',
          '--no-sandbox',

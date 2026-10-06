@@ -42,6 +42,15 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
   const [passwordError, setPasswordError] = useState('')
   const [activeTab, setActiveTab] = useState<'dashboard' | 'accounts' | 'campaigns' | 'deposits' | 'emails' | 'autoreg' | 'autopost' | 'settings'>('dashboard')
   const [appSettings, setAppSettings] = useState({ runHeadless: false, autoJoinKeywords: '' })
+  const [appVersion, setAppVersion] = useState<string>('0.1.1')
+  const [updateProgress, setUpdateProgress] = useState<{ percent: number; bytesPerSecond: number; total: number; transferred: number } | null>(null)
+  const [updateStatus, setUpdateStatus] = useState<string>('')
+
+  // Live Console – raw logs từ electron main process
+  const [consoleLogs, setConsoleLogs] = useState<{ time: string; message: string; level: 'info' | 'warning' | 'error' }[]>([])
+  const [consoleFilter, setConsoleFilter] = useState<'all' | 'info' | 'warning' | 'error'>('all')
+  const [showConsole, setShowConsole] = useState(true)
+  const consoleEndRef = React.useRef<HTMLDivElement>(null)
 
   const addLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {
     const time = new Date().toLocaleTimeString('vi-VN')
@@ -55,6 +64,11 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
     // Load settings
     window.electronAPI?.getSettings?.().then((settings: any) => {
       if (settings) setAppSettings(settings)
+    })
+    
+    // Load app version
+    window.electronAPI?.getVersion?.().then((v: string) => {
+      if (v) setAppVersion(v)
     })
 
     // Listen to events from main process
@@ -79,6 +93,19 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
       // Hiển thị cảnh báo nhưng không block UI
       setTimeout(() => alert(`⚠️ ${data.title}\n\n${data.message}`), 500)
     }
+    const onUpdateProgress = (data: any) => {
+      setUpdateProgress(data)
+      setUpdateStatus(`Đang tải... ${Math.round(data.percent)}% (${(data.bytesPerSecond / 1024 / 1024).toFixed(2)} MB/s)`)
+    }
+    const onUpdateDownloaded = () => {
+      setUpdateProgress(null)
+      setUpdateStatus('✅ Tải xuống hoàn tất! Hãy khởi động lại ứng dụng để cài đặt.')
+    }
+    // Live Console: nhận log từ main process
+    const onWorkerLog = (data: { message: string; level: 'info' | 'warning' | 'error' }) => {
+      const time = new Date().toLocaleTimeString('vi-VN')
+      setConsoleLogs(prev => [...prev, { time, message: data.message, level: data.level }].slice(-500))
+    }
 
     window.electronAPI?.on('worker:status', onStatusUpdate)
     window.electronAPI?.on('worker:connected', onConnected)
@@ -86,6 +113,9 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
     window.electronAPI?.on('worker:task_completed', onTaskDone)
     window.electronAPI?.on('worker:error', onError)
     window.electronAPI?.on('worker:warning', onWarning)
+    window.electronAPI?.on?.('app:updateProgress', onUpdateProgress)
+    window.electronAPI?.on?.('app:updateDownloaded', onUpdateDownloaded)
+    window.electronAPI?.on?.('worker:log', onWorkerLog)
 
     return () => {
       window.electronAPI?.off('worker:status', onStatusUpdate)
@@ -94,6 +124,9 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
       window.electronAPI?.off('worker:task_completed', onTaskDone)
       window.electronAPI?.off('worker:error', onError)
       window.electronAPI?.off('worker:warning', onWarning)
+      window.electronAPI?.off?.('app:updateProgress', onUpdateProgress)
+      window.electronAPI?.off?.('app:updateDownloaded', onUpdateDownloaded)
+      window.electronAPI?.off?.('worker:log', onWorkerLog)
     }
   }, [addLog])
 
@@ -149,7 +182,7 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
     <div className="dashboard-root">
       {/* Custom Titlebar */}
       <div className="titlebar">
-        <div className="brand-mini">⚡ FollowFree <span style={{fontSize: '11px', color: 'var(--text-muted)', marginLeft: '4px'}}>v0.1.1</span></div>
+        <div className="brand-mini">⚡ FollowFree <span style={{fontSize: '11px', color: 'var(--text-muted)', marginLeft: '4px'}}>v{appVersion}</span></div>
         <div className="titlebar-drag" />
         <div className="titlebar-controls">
           <button onClick={() => window.electronAPI?.minimizeWindow()} className="ctrl-btn">─</button>
@@ -349,6 +382,52 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
                   )}
                 </div>
               </div>
+
+              {/* Live Console */}
+              <div className="live-console-section">
+                <div className="live-console-header" onClick={() => setShowConsole(v => !v)}>
+                  <span className="live-console-title">
+                    🖥️ Live Console
+                    {consoleLogs.length > 0 && (
+                      <span className="console-badge">{consoleLogs.length}</span>
+                    )}
+                  </span>
+                  <div className="console-controls" onClick={e => e.stopPropagation()}>
+                    {(['all', 'info', 'warning', 'error'] as const).map(f => (
+                      <button
+                        key={f}
+                        className={`console-filter-btn ${consoleFilter === f ? 'active' : ''} ${f}`}
+                        onClick={() => setConsoleFilter(f)}
+                      >
+                        {f === 'all' ? 'Tất cả' : f === 'info' ? 'Info' : f === 'warning' ? 'Warn' : 'Error'}
+                      </button>
+                    ))}
+                    <button className="console-clear-btn" onClick={() => setConsoleLogs([])}>Xoá</button>
+                  </div>
+                  <span className="console-toggle">{showConsole ? '▲' : '▼'}</span>
+                </div>
+                {showConsole && (
+                  <div className="live-console-body">
+                    {consoleLogs.length === 0 ? (
+                      <div className="console-empty">Chưa có log nào. Bắt đầu chạy campaign để xem log tại đây...</div>
+                    ) : (
+                      consoleLogs
+                        .filter(l => consoleFilter === 'all' || l.level === consoleFilter)
+                        .slice().reverse()
+                        .map((l, i) => (
+                          <div key={i} className={`console-line ${l.level}`}>
+                            <span className="console-time">{l.time}</span>
+                            <span className={`console-level-badge ${l.level}`}>
+                              {l.level === 'info' ? 'INFO' : l.level === 'warning' ? 'WARN' : 'ERR'}
+                            </span>
+                            <span className="console-msg">{l.message}</span>
+                          </div>
+                        ))
+                    )}
+                    <div ref={consoleEndRef} />
+                  </div>
+                )}
+              </div>
             </>
           )}
 
@@ -475,12 +554,22 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
                   <div>
                     <div style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 400 }}>Kiểm tra phiên bản mới</div>
                     <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 300 }}>Hệ thống sẽ kiểm tra và tự động tải về bản cập nhật nếu có.</div>
+                    {updateStatus && (
+                        <div style={{ marginTop: '8px', fontSize: '13px', color: updateStatus.includes('hoàn tất') ? '#4CAF50' : '#2196F3', fontWeight: 500 }}>
+                           {updateStatus}
+                        </div>
+                    )}
+                    {updateProgress && (
+                        <div style={{ marginTop: '4px', width: '100%', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
+                            <div style={{ width: `${updateProgress.percent}%`, height: '100%', background: 'var(--accent)', transition: 'width 0.2s ease' }} />
+                        </div>
+                    )}
                   </div>
                   <button 
                     onClick={async () => {
                       try {
                         const res = await (window as any).electronAPI.checkUpdate();
-                        alert(res.message);
+                        if (res.message) setUpdateStatus(res.message);
                       } catch (e: any) {
                         alert('Lỗi: ' + e.message);
                       }

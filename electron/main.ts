@@ -58,6 +58,36 @@ let autoRegService: AutoRegService | null = null
 let pageFarmService: PageFarmService | null = null
 let isQuitting = false
 
+// ================================================================
+// LIVE CONSOLE: Pipe all console.log/warn/error to the UI
+// ================================================================
+const _origLog = console.log.bind(console)
+const _origWarn = console.warn.bind(console)
+const _origError = console.error.bind(console)
+
+function sendLogToUI(level: 'info' | 'warning' | 'error', ...args: any[]) {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  try {
+    const message = args.map(a =>
+      typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)
+    ).join(' ')
+    mainWindow.webContents.send('worker:log', { message, level })
+  } catch (_) {}
+}
+
+console.log = (...args: any[]) => {
+  _origLog(...args)
+  sendLogToUI('info', ...args)
+}
+console.warn = (...args: any[]) => {
+  _origWarn(...args)
+  sendLogToUI('warning', ...args)
+}
+console.error = (...args: any[]) => {
+  _origError(...args)
+  sendLogToUI('error', ...args)
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 900,
@@ -821,7 +851,7 @@ app.whenReady().then(async () => {
     try {
       const result = await autoUpdater.checkForUpdates()
       if (result && result.updateInfo && result.updateInfo.version !== app.getVersion()) {
-         return { success: true, message: `Đã tìm thấy bản cập nhật v${result.updateInfo.version}! Đang tải xuống ngầm...` }
+         return { success: true, message: `Đã tìm thấy bản cập nhật v${result.updateInfo.version}! Đang tải xuống...` }
       } else {
          return { success: true, message: 'Bạn đang dùng phiên bản mới nhất!' }
       }
@@ -829,6 +859,16 @@ app.whenReady().then(async () => {
       return { success: false, message: 'Lỗi kiểm tra cập nhật: ' + err.message }
     }
   })
+
+  autoUpdater.on('download-progress', (progressObj) => {
+    mainWindow?.webContents.send('app:updateProgress', progressObj)
+  })
+
+  autoUpdater.on('update-downloaded', () => {
+    mainWindow?.webContents.send('app:updateDownloaded')
+  })
+
+  ipcMain.handle('app:getVersion', () => app.getVersion())
 
   // Auto-start worker if already logged in
   const session = storeService.getSession()
