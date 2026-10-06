@@ -495,10 +495,11 @@ export class FacebookExecutor implements IPlatformExecutor {
         const membershipState = await page.evaluate(() => {
           const btns = Array.from(document.querySelectorAll('div[role="button"]'));
           for (const btn of btns) {
-            const aria = btn.getAttribute('aria-label') || '';
-            if (aria === 'Đã tham gia' || aria === 'Joined') return 'JOINED';
-            if (aria === 'Hủy yêu cầu' || aria === 'Cancel request') return 'PENDING';
-            if (aria === 'Tham gia nhóm' || aria === 'Join Group') return 'NOT_JOINED';
+            const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+            const txt = (btn.textContent || '').toLowerCase();
+            if (aria === 'đã tham gia' || aria === 'joined' || txt === 'đã tham gia' || txt === 'joined') return 'JOINED';
+            if (aria === 'hủy yêu cầu' || aria === 'cancel request' || txt === 'hủy yêu cầu' || txt === 'cancel request') return 'PENDING';
+            if (aria === 'tham gia nhóm' || aria === 'join group' || aria === 'join' || txt === 'tham gia nhóm' || txt === 'join group') return 'NOT_JOINED';
           }
           return 'UNKNOWN';
         });
@@ -513,8 +514,9 @@ export class FacebookExecutor implements IPlatformExecutor {
           const clickedJoin = await page.evaluate(() => {
             const btns = Array.from(document.querySelectorAll('div[role="button"], span[role="button"], [aria-label]'));
             for (const btn of btns) {
-              const aria = btn.getAttribute('aria-label') || '';
-              if (aria === 'Tham gia nhóm' || aria === 'Join Group') {
+              const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+              const txt = (btn.textContent || '').toLowerCase().trim();
+              if (aria === 'tham gia nhóm' || aria === 'join group' || aria === 'join' || txt === 'tham gia nhóm' || txt === 'join group') {
                 (btn as HTMLElement).click();
                 return true;
               }
@@ -526,7 +528,7 @@ export class FacebookExecutor implements IPlatformExecutor {
             console.log('[Facebook] Đã bấm Tham gia nhóm. Chờ modal câu hỏi (nếu có)...');
             await this.automationService.wait(3000);
             
-            const hasModal = await page.$('div[aria-label="Trả lời câu hỏi"]');
+            const hasModal = await page.$('div[aria-label="Trả lời câu hỏi"], div[aria-label="Answer questions"], div[aria-label="Membership questions"]');
             if (hasModal) {
                console.log('[Facebook] Nhóm yêu cầu trả lời câu hỏi. Thử tick bừa...');
                const checkboxes = await page.$$('div[role="checkbox"], div[role="radio"]');
@@ -764,7 +766,10 @@ export class FacebookExecutor implements IPlatformExecutor {
           'input[aria-label="Tìm kiếm nhóm"]',
           'input[placeholder="Tìm kiếm nhóm"]',
           'input[aria-label="Search for groups"]',
-          'input[placeholder="Search for groups"]'
+          'input[placeholder="Search for groups"]',
+          // Fallback: bất kỳ input type=search nào trong dialog
+          'div[role="dialog"] input[type="search"]',
+          'div[role="dialog"] input[type="text"]'
         ];
 
         let typedSearch = false;
@@ -868,7 +873,12 @@ export class FacebookExecutor implements IPlatformExecutor {
             const textLocators = [
                 'div[role="textbox"][aria-label*="Hãy nói gì đó"]',
                 'div[role="textbox"][aria-label*="Say something"]',
-                'div[role="textbox"][aria-label*="viết"]'
+                'div[role="textbox"][aria-label*="viết"]',
+                'div[role="textbox"][aria-label*="write"]',
+                'div[role="textbox"][aria-label*="Write"]',
+                // Fallback: textbox bất kỳ trong dialog
+                'div[role="dialog"] div[role="textbox"]',
+                'div[role="dialog"] div[contenteditable="true"]'
             ];
             
             let typed = false;
@@ -893,8 +903,11 @@ export class FacebookExecutor implements IPlatformExecutor {
         const postSelectors = [
           'div[aria-label="Đăng"][role="button"]',
           'div[aria-label="Post"][role="button"]',
-          'span:has-text("Đăng")',
-          'span:has-text("Post")'
+          'div[aria-label="Đăng bài"][role="button"]',
+          'div[aria-label="Publish"][role="button"]',
+          'div[role="dialog"] div[role="button"]:has-text("Đăng")',
+          'div[role="dialog"] div[role="button"]:has-text("Post")',
+          'div[role="dialog"] div[role="button"]:has-text("Publish")'
         ];
 
         let posted = false;
@@ -1286,10 +1299,11 @@ export class FacebookExecutor implements IPlatformExecutor {
           const membershipState = await page.evaluate(() => {
             const btns = Array.from(document.querySelectorAll('div[role="button"]'));
             for (const btn of btns) {
-              const aria = btn.getAttribute('aria-label') || '';
-              if (aria === 'Đã tham gia' || aria === 'Joined') return 'JOINED';
-              if (aria === 'Hủy yêu cầu' || aria === 'Cancel request') return 'PENDING';
-              if (aria === 'Tham gia nhóm' || aria === 'Join Group') return 'NOT_JOINED';
+              const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+              const txt = (btn.textContent || '').toLowerCase().trim();
+              if (aria === 'đã tham gia' || aria === 'joined' || txt === 'đã tham gia' || txt === 'joined') return 'JOINED';
+              if (aria === 'hủy yêu cầu' || aria === 'cancel request' || txt === 'hủy yêu cầu' || txt === 'cancel request') return 'PENDING';
+              if (aria === 'tham gia nhóm' || aria === 'join group' || aria === 'join' || txt === 'tham gia nhóm' || txt === 'join group') return 'NOT_JOINED';
             }
             return 'UNKNOWN';
           });
@@ -1305,8 +1319,9 @@ export class FacebookExecutor implements IPlatformExecutor {
             const clickedJoin = await page.evaluate(() => {
               const btns = Array.from(document.querySelectorAll('div[role="button"], span[role="button"], [aria-label]'));
               for (const btn of btns) {
-                const aria = btn.getAttribute('aria-label') || '';
-                if (aria === 'Tham gia nhóm' || aria === 'Join Group') {
+                const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+                const txt = (btn.textContent || '').toLowerCase().trim();
+                if (aria === 'tham gia nhóm' || aria === 'join group' || aria === 'join' || txt === 'tham gia nhóm' || txt === 'join group') {
                   (btn as HTMLElement).click();
                   return true;
                 }
@@ -1318,7 +1333,7 @@ export class FacebookExecutor implements IPlatformExecutor {
               console.log('[Facebook] Đã bấm Tham gia nhóm. Chờ modal câu hỏi (nếu có)...');
               await this.automationService.wait(3000);
               
-              const hasModal = await page.$('div[aria-label="Trả lời câu hỏi"]');
+              const hasModal = await page.$('div[aria-label="Trả lời câu hỏi"], div[aria-label="Answer questions"], div[aria-label="Membership questions"]');
               if (hasModal) {
                  console.log('[Facebook] Nhóm yêu cầu trả lời câu hỏi. Thử tick bừa...');
                  const options = await page.$$('div[role="checkbox"], div[role="radio"]');
@@ -1341,9 +1356,13 @@ export class FacebookExecutor implements IPlatformExecutor {
           const postBoxSelectors = [
               'div[role="button"]:has-text("Bạn viết gì đi")',
               'div[role="button"]:has-text("Write something")',
+              'div[role="button"]:has-text("What\'s on your mind")',
               'div[role="button"]:has-text("Tạo bài viết công khai")',
               'div[role="button"]:has-text("Create a public post")',
-              'div.x1i10hfl.x6umtig.x1b1mbwd.xaqea5y.xav7gou.x9f619.x1ypdohk:has-text("Bạn viết gì đi")'
+              'div[role="button"]:has-text("Write something...")',
+              // Fallback: bất kỳ div[role=button] nào chứa placeholder-like text
+              'div[data-lexical-editor="true"]',
+              'div[contenteditable="true"][role="textbox"]'
           ];
 
           let clickedBox = false;
@@ -1355,9 +1374,17 @@ export class FacebookExecutor implements IPlatformExecutor {
           }
 
           if (!clickedBox) {
-              const boxText = page.locator('span, div[role="button"]').filter({ hasText: /viết gì đi|write something|tạo bài viết|create a public post/i }).first();
+              const boxText = page.locator('span, div[role="button"]').filter({ hasText: /viết gì đi|write something|what'?s on your mind|tạo bài viết|create a public post/i }).first();
               if (await boxText.isVisible().catch(() => false)) {
                   await boxText.click();
+                  clickedBox = true;
+              }
+          }
+          // Fallback cuối: thử click contenteditable trực tiếp nếu nó visible
+          if (!clickedBox) {
+              const editorDirect = page.locator('div[contenteditable="true"][role="textbox"]').first();
+              if (await editorDirect.isVisible().catch(() => false)) {
+                  await editorDirect.click();
                   clickedBox = true;
               }
           }
@@ -1367,7 +1394,11 @@ export class FacebookExecutor implements IPlatformExecutor {
               // Kiểm tra xem nhóm có yêu cầu phê duyệt không
               const requiresApproval = await page.evaluate(() => {
                  const texts = Array.from(document.querySelectorAll('span, div')).map(el => (el.textContent || '').toLowerCase());
-                 return texts.some(t => t.includes('phê duyệt') || t.includes('approval') || t.includes('admin review'));
+                 return texts.some(t =>
+                   t.includes('phê duyệt') || t.includes('approval') ||
+                   t.includes('admin review') || t.includes('pending review') ||
+                   t.includes('chờ duyệt') || t.includes('quản trị viên sẽ xem xét')
+                 );
               });
               
               if (requiresApproval) {
@@ -1440,8 +1471,12 @@ export class FacebookExecutor implements IPlatformExecutor {
           const submitSelectors = [
               'div[aria-label="Đăng"][role="button"]',
               'div[aria-label="Post"][role="button"]',
-              'span:has-text("Đăng")',
-              'span:has-text("Post")'
+              'div[aria-label="Đăng bài"][role="button"]',
+              'div[aria-label="Publish"][role="button"]',
+              // Fallback dùng text filter - hoạt động cả VI lẫn EN
+              'div[role="dialog"] div[role="button"]:has-text("Đăng")',
+              'div[role="dialog"] div[role="button"]:has-text("Post")',
+              'div[role="dialog"] div[role="button"]:has-text("Publish")'
           ];
           
           let posted = false;
