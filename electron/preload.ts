@@ -61,6 +61,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   closeWindow: () => ipcRenderer.send('window:close'),
   checkUpdate: () => ipcRenderer.invoke('app:checkUpdate'),
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
+  getRecentLogs: () => ipcRenderer.invoke('app:getRecentLogs'),
+
 
   // Settings
   getSettings: () => ipcRenderer.invoke('settings:get'),

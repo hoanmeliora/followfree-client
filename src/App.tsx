@@ -58,6 +58,7 @@ declare global {
       maximizeWindow: () => void
       hideWindow: () => void
       closeWindow: () => void
+      getRecentLogs: () => Promise<any[]>
       on: (channel: string, cb: (...args: any[]) => void) => void
       off: (channel: string, cb: (...args: any[]) => void) => void
     }

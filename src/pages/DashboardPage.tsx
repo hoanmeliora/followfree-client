@@ -101,11 +101,17 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
       setUpdateProgress(null)
       setUpdateStatus('✅ Tải xuống hoàn tất! Hãy khởi động lại ứng dụng để cài đặt.')
     }
-    // Live Console: nhận log từ main process
-    const onWorkerLog = (data: { message: string; level: 'info' | 'warning' | 'error' }) => {
-      const time = new Date().toLocaleTimeString('vi-VN')
+    const onWorkerLog = (data: { time?: string, message: string; level: 'info' | 'warning' | 'error' }) => {
+      const time = data.time || new Date().toLocaleTimeString('vi-VN')
       setConsoleLogs(prev => [...prev, { time, message: data.message, level: data.level }].slice(-500))
     }
+    
+    // Fetch initial logs buffer
+    window.electronAPI?.getRecentLogs?.().then((logs: any[]) => {
+      if (logs && logs.length > 0) {
+        setConsoleLogs(logs)
+      }
+    })
 
     window.electronAPI?.on('worker:status', onStatusUpdate)
     window.electronAPI?.on('worker:connected', onConnected)

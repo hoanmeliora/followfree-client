@@ -229,17 +229,9 @@ export class WorkerService {
     }
     const task = this.taskQueue.shift()!
 
-    // FIX #1: Nếu không có IPv6 VÀ không có proxy → từ chối task để bảo vệ tài khoản
-    // Không được dùng IP thật vì 1 IP thật cày nhiều nick → bị Checkpoint hàng loạt
+    // FIX #1: Nếu không có IPv6 VÀ không có proxy → giới hạn 3 tài khoản luân phiên
     if (!this.ipv6Available) {
       console.warn('[Worker] 🚨 Mạng không có IPv6 - Bật chế độ giới hạn 3 tài khoản luân phiên')
-      const allowedCount = this.store.activeIpv4Accounts.size
-      if (allowedCount >= 3) {
-        console.warn('[Worker] 🛑 Đã đủ 3 tài khoản IPv4, bỏ qua task để bảo vệ.')
-        this.reportTaskResult(task.id, '', false, 'Mạng không có IPv6: Giới hạn 3 tài khoản luân phiên đã đầy')
-        this.finishTask()
-        return
-      }
     }
 
     const executor = this.executorRegistry.get(task.campaign.platform)

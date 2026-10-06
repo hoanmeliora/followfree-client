@@ -65,15 +65,24 @@ const _origLog = console.log.bind(console)
 const _origWarn = console.warn.bind(console)
 const _origError = console.error.bind(console)
 
+const logBuffer: { time: string, message: string, level: string }[] = []
 function sendLogToUI(level: 'info' | 'warning' | 'error', ...args: any[]) {
-  if (!mainWindow || mainWindow.isDestroyed()) return
   try {
     const message = args.map(a =>
       typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)
     ).join(' ')
-    mainWindow.webContents.send('worker:log', { message, level })
+    const time = new Date().toLocaleTimeString('vi-VN')
+    logBuffer.push({ time, message, level })
+    if (logBuffer.length > 500) logBuffer.shift()
+
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    mainWindow.webContents.send('worker:log', { message, level, time })
   } catch (_) {}
 }
+
+ipcMain.handle('app:getRecentLogs', () => {
+  return logBuffer
+})
 
 console.log = (...args: any[]) => {
   _origLog(...args)
