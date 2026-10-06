@@ -9,7 +9,7 @@ export class FacebookExecutor implements IPlatformExecutor {
   readonly platform = 'FACEBOOK'
 
   // Trạng thái cày theo lô (Batching) của các Page thuộc từng Account
-  private accountPageState: Record<string, { mainAccountName: string | null, pageIndex: number, tasksDone: number, maxTasks: number }> = {};
+  private accountPageState: Record<string, { mainAccountName: string | null, pageIndex: number, tasksDone: number, maxTasks: number, pageCount?: number }> = {};
 
   constructor(
     private readonly automationService: AutomationService,
@@ -248,6 +248,7 @@ export class FacebookExecutor implements IPlatformExecutor {
           }
 
           if (pagesOnly.length > 0) {
+              state.pageCount = pagesOnly.length; // Lưu lại số lượng page để tính toán sau này
               if (state.tasksDone >= state.maxTasks || state.pageIndex >= pagesOnly.length) {
                   // Hết Quota hoặc Index vượt quá mảng -> Chuyển sang Page tiếp theo theo vòng lặp (Round Robin)
                   state.pageIndex++;
@@ -400,13 +401,28 @@ export class FacebookExecutor implements IPlatformExecutor {
 
     const state = this.accountPageState[accountId];
     let successCount = 0;
+    let sharesForCurrentPage = 0;
+    const MAX_SHARES_PER_PAGE = 5;
 
     for (let i = 0; i < groupIds.length; i++) {
+      if (sharesForCurrentPage >= MAX_SHARES_PER_PAGE) {
+          console.log(`[Facebook] Đã share đủ ${MAX_SHARES_PER_PAGE} bài cho Page hiện tại. Tiến hành ĐỔI PAGE KHÁC ngay trong tab này...`);
+          if (this.accountPageState[accountId]) {
+              this.accountPageState[accountId].tasksDone = 999;
+          }
+          await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded' });
+          await this.switchToPageContext(page, accountId);
+          sharesForCurrentPage = 0;
+      }
+
       let rawGroup = groupIds[i];
       
       if (!rawGroup.includes('facebook.com') && !/^\d+$/.test(rawGroup)) {
           console.log(`[Facebook] Phát hiện Từ khoá: ${rawGroup}. Đang càn quét tìm TẤT CẢ nhóm...`);
-          let foundUrls = await this.resolveKeywordToGroupUrls(page, rawGroup, 9999); // KHÔNG GIỚI HẠN
+          const pageCount = state?.pageCount || 1;
+          const MAX_POSTS_PER_PAGE = 5;
+          const scanLimit = Math.max(MAX_POSTS_PER_PAGE, pageCount * MAX_POSTS_PER_PAGE);
+          let foundUrls = await this.resolveKeywordToGroupUrls(page, rawGroup, scanLimit); 
           if (foundUrls.length > 0) {
               console.log(`[Facebook] 🔥 SIÊU CẤP: Đã quét được tổng cộng ${foundUrls.length} nhóm cho từ khoá "${rawGroup}"! Đang nhét toàn bộ vào hàng đợi...`);
               groupIds.splice(i, 1, ...foundUrls);
@@ -930,6 +946,8 @@ export class FacebookExecutor implements IPlatformExecutor {
         console.error(`[Facebook] Lỗi không xác định khi share nhóm ${rawGroup}:`, e);
       }
 
+      sharesForCurrentPage++; // Tăng biến đếm bất kể thành công hay thất bại để bảo vệ nick
+
       // 9. NHỊP NGHỈ VÀ NUÔI NICK TRƯỚC KHI SHARE NHÓM TIẾP THEO
       if (i < groupIds.length - 1) {
           const delaySecs = 30 + Math.random() * 30; // 30 đến 60 giây
@@ -1224,21 +1242,30 @@ export class FacebookExecutor implements IPlatformExecutor {
       console.log(`[Facebook] Debug campaignMeta:`, JSON.stringify(campaignMeta));
       console.log(`[Facebook] Debug postData:`, JSON.stringify(postData));
 
-      let postsThisSession = 0;
-      const MAX_POSTS_PER_SESSION = 3;
+      let postsForCurrentPage = 0;
+      const MAX_POSTS_PER_PAGE = 5;
 
-      while (postsThisSession < MAX_POSTS_PER_SESSION) {
-          const currentIndex = postsThisSession;
-          if (currentIndex >= groups.length) {
-              console.log('[Facebook] Đã hoàn thành hết số lượng nhóm trong kịch bản POST_GROUP.');
-              return true;
+      while (groups.length > 0) {
+          if (postsForCurrentPage >= MAX_POSTS_PER_PAGE) {
+              console.log(`[Facebook] Đã đăng đủ ${MAX_POSTS_PER_PAGE} bài cho Page hiện tại. Tiến hành ĐỔI PAGE KHÁC ngay trong tab này...`);
+              if (this.accountPageState[accountId]) {
+                  this.accountPageState[accountId].tasksDone = 999; // Ép buộc đổi Page
+              }
+              // Khôi phục về trang chủ trước khi chuyển Page cho an toàn
+              await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded' });
+              await this.switchToPageContext(page, accountId);
+              postsForCurrentPage = 0;
           }
+
+          const currentIndex = 0; // Luôn lấy phần tử đầu tiên của mảng vì ta dùng splice(0, 1)
 
           let rawGroup = groups[currentIndex];
           
           if (!rawGroup.includes('facebook.com') && !/^\d+$/.test(rawGroup)) {
               console.log(`[Facebook] Phát hiện Từ khoá: ${rawGroup}. Đang càn quét tìm TẤT CẢ nhóm...`);
-              let foundUrls = await this.resolveKeywordToGroupUrls(page, rawGroup, 9999); 
+              const pageCount = this.accountPageState[accountId]?.pageCount || 1;
+              const scanLimit = Math.max(MAX_POSTS_PER_PAGE, pageCount * MAX_POSTS_PER_PAGE); // Quét vừa đủ số lượng cho TẤT CẢ các page
+              let foundUrls = await this.resolveKeywordToGroupUrls(page, rawGroup, scanLimit); 
               if (foundUrls.length > 0) {
                   console.log(`[Facebook] 🔥 SIÊU CẤP: Đã quét được tổng cộng ${foundUrls.length} nhóm cho từ khoá "${rawGroup}"! Đang nhét toàn bộ vào hàng đợi...`);
                   groups.splice(currentIndex, 1, ...foundUrls);
@@ -1435,12 +1462,12 @@ export class FacebookExecutor implements IPlatformExecutor {
               console.log('[Facebook] Bấm Đăng thành công. Đang đợi xác nhận...');
               await editorLoc.waitFor({ state: 'hidden', timeout: 15000 }).catch(() => {});
               await this.automationService.wait(3000);
-              postsThisSession++;
+              postsForCurrentPage++;
               groups.splice(currentIndex, 1); // Xóa khỏi danh sách sau khi đăng thành công
               
-              if (postsThisSession < MAX_POSTS_PER_SESSION && groups.length > 0) {
+              if (groups.length > 0) {
                  const randomDelay = Math.floor(Math.random() * 40000) + 20000; // 20s - 60s
-                 console.log(`[Facebook] Đã đăng ${postsThisSession}/${MAX_POSTS_PER_SESSION} bài. Nghỉ ngơi ${Math.round(randomDelay/1000)} giây trước khi đăng tiếp...`);
+                 console.log(`[Facebook] Đã đăng ${postsForCurrentPage}/${MAX_POSTS_PER_PAGE} bài của Page này. Nghỉ ngơi ${Math.round(randomDelay/1000)} giây trước khi tiếp tục...`);
                  await this.automationService.wait(randomDelay);
               }
           } else {

@@ -83,6 +83,12 @@ export class WorkerService {
     this.store.onAccountsChanged(() => {
       this.reportCapacityUpdate()
     })
+
+    this.store.onBlacklistAdded((url) => {
+      if (this.socket?.connected) {
+        this.socket.emit('report_blacklist', { url })
+      }
+    })
   }
 
   async start() {
@@ -181,6 +187,17 @@ export class WorkerService {
          await new Promise(r => setTimeout(r, 3000))
       }
       this.processNextTask()
+    })
+
+    this.socket.on('sync_blacklist', (list: string[]) => {
+      const current = this.store.getGroupBlacklist()
+      const merged = Array.from(new Set([...current, ...list]))
+      ;(this.store as any).store.set('groupBlacklist', merged)
+      console.log(`[Worker] Đã đồng bộ Global Blacklist từ Server (${list.length} nhóm cấm)`)
+    })
+
+    this.socket.on('add_blacklist', (url: string) => {
+      this.store.addToGroupBlacklist(url)
     })
   }
 
@@ -419,7 +436,10 @@ export class WorkerService {
     const { context, page } = await this.createBrowserContext(account.id, proxyUrl)
 
     try {
-      if (account.cookieData) {
+      const existingCookies = await context.cookies();
+      const hasSession = existingCookies.some(c => c.name === 'c_user' || c.name === 'sessionid');
+
+      if (!hasSession && account.cookieData) {
         let parsedCookies: any[] = []
         try {
            parsedCookies = JSON.parse(account.cookieData)

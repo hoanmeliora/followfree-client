@@ -383,9 +383,6 @@ function setupIpcHandlers(
               parsed.cookies = freshCookies;
               newCookieStr = JSON.stringify(parsed);
             } catch(e) {}
-          } else if (!cookieStr.startsWith('[')) {
-            // Nếu ban đầu là dạng chuỗi name=value, thì lưu lại dạng chuỗi
-            newCookieStr = freshCookies.map(c => `${c.name}=${c.value}`).join('; ')
           }
 
           // 2. Lưu local ngay lập tức

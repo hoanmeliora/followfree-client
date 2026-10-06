@@ -64,6 +64,7 @@ export class StoreService {
   private store: Store<AppData>
   public activeIpv4Accounts = new Set<string>()
   private accountsListeners: Array<() => void> = []
+  private blacklistListeners: Array<(url: string) => void> = []
 
   constructor() {
     this.store = new Store<AppData>({
@@ -102,7 +103,14 @@ export class StoreService {
     if (!list.includes(urlOrId)) {
       list.push(urlOrId);
       (this.store as any).set('groupBlacklist', list);
+      for (const listener of this.blacklistListeners) {
+        try { listener(urlOrId) } catch {}
+      }
     }
+  }
+
+  onBlacklistAdded(listener: (url: string) => void): void {
+    this.blacklistListeners.push(listener);
   }
 
   getAccounts(): SocialAccount[] {
