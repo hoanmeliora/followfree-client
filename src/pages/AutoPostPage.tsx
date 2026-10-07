@@ -265,7 +265,20 @@ export default function AutoPostPage({ addLog, session }: Props) {
         )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>🎯 Danh sách từ khoá tìm nhóm (Mỗi từ khoá 1 dòng):</label>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>🎯 Danh sách từ khoá tìm nhóm (Mỗi từ khoá 1 dòng):</label>
+            <button
+              type="button"
+              onClick={() => setGroupIds(prev => prev ? prev + '\n[NHÓM_ĐÃ_THAM_GIA]' : '[NHÓM_ĐÃ_THAM_GIA]')}
+              style={{
+                background: 'rgba(255, 255, 255, 0.1)', color: 'var(--text-primary)',
+                border: '1px solid var(--border)', borderRadius: '4px', padding: '4px 8px',
+                fontSize: '11px', cursor: 'pointer'
+              }}
+            >
+              ➕ Đăng nhóm đã tham gia
+            </button>
+          </div>
           <textarea 
             rows={5}
             value={groupIds} 

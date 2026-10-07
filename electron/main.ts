@@ -131,12 +131,9 @@ function createWindow() {
     }
   })
 
-  // Thu về System Tray khi đóng, không thoát hẳn
-  mainWindow.on('close', (event) => {
-    if (!isQuitting) {
-      event.preventDefault()
-      mainWindow?.hide()
-    }
+  // Thoát hẳn phần mềm khi bấm X
+  mainWindow.on('close', () => {
+    isQuitting = true
   })
 }
 

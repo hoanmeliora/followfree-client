@@ -982,6 +982,25 @@ export class FacebookExecutor implements IPlatformExecutor {
   }
 
   private async resolveKeywordToGroupUrls(page: Page, keyword: string, maxResults: number = 9999): Promise<string[]> {
+    if (keyword === '[NHÓM_ĐÃ_THAM_GIA]') {
+      console.log(`[Facebook] 🔎 Đang lấy danh sách các nhóm đã tham gia...`);
+      await page.goto('https://www.facebook.com/groups/joins/?nav_source=tab');
+      await this.automationService.wait(5000);
+      let joinedGroups: string[] = [];
+      for (let s = 0; s < 5; s++) {
+        const urls = await page.evaluate(() => {
+          return Array.from(document.querySelectorAll('a[href*="/groups/"]'))
+            .map((a: any) => a.href.split('?')[0])
+            .filter(href => !href.includes('/groups/joins') && !href.includes('/groups/discover') && !href.includes('/groups/feed'));
+        });
+        joinedGroups = [...new Set([...joinedGroups, ...urls])];
+        await page.mouse.wheel(0, 1000);
+        await new Promise(r => setTimeout(r, 1500));
+      }
+      console.log(`[Facebook] ✅ Đã lấy được ${joinedGroups.length} nhóm đã tham gia.`);
+      return joinedGroups;
+    }
+
     if (keyword.includes('facebook.com')) return [keyword];
     if (/^\d+$/.test(keyword)) return [`https://www.facebook.com/groups/${keyword}`];
     
