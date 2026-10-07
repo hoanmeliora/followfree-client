@@ -60,6 +60,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   hideWindow: () => ipcRenderer.send('window:hide'),
   closeWindow: () => ipcRenderer.send('window:close'),
   checkUpdate: () => ipcRenderer.invoke('app:checkUpdate'),
+  installUpdate: () => ipcRenderer.invoke('app:installUpdate'),
+  openReleasePage: () => ipcRenderer.invoke('app:openReleasePage'),
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
   getRecentLogs: () => ipcRenderer.invoke('app:getRecentLogs'),
 

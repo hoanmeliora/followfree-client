@@ -848,34 +848,59 @@ app.whenReady().then(async () => {
   createWindow()
   createTray()
   
-  // Kiểm tra cập nhật tự động (nếu là bản build Production)
-  if (!isDev) {
-    autoUpdater.checkForUpdatesAndNotify().catch(err => {
-      console.log('Update Error:', err)
-    })
+  // ===== Auto Update =====
+  const isMac = process.platform === 'darwin'
+  const sendUpdateStatus = (message: string, kind: 'info' | 'error' | 'success' = 'info') => {
+    console.log('[Updater]', message)
+    mainWindow?.webContents.send('app:updateStatus', { message, kind })
   }
+
+  autoUpdater.autoDownload = !isMac // macOS bản chưa ký số không tự cài được
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('checking-for-update', () => sendUpdateStatus('Đang kiểm tra bản cập nhật...'))
+  autoUpdater.on('update-available', (info) => {
+    if (isMac) {
+      sendUpdateStatus(`Có bản mới v${info.version}. macOS cần tải file .dmg thủ công từ GitHub Releases.`, 'info')
+    } else {
+      sendUpdateStatus(`Đã tìm thấy bản v${info.version}, đang tải xuống...`)
+    }
+    mainWindow?.webContents.send('app:updateAvailable', { version: info.version, manual: isMac })
+  })
+  autoUpdater.on('update-not-available', () => sendUpdateStatus('Bạn đang dùng phiên bản mới nhất!', 'success'))
+  autoUpdater.on('error', (err) => sendUpdateStatus('Lỗi cập nhật: ' + (err?.message || err), 'error'))
+  autoUpdater.on('download-progress', (progressObj) => {
+    mainWindow?.webContents.send('app:updateProgress', progressObj)
+  })
+  autoUpdater.on('update-downloaded', () => {
+    mainWindow?.webContents.send('app:updateDownloaded')
+  })
 
   ipcMain.handle('app:checkUpdate', async () => {
     if (isDev) return { success: false, message: 'Tính năng cập nhật bị vô hiệu hóa trong môi trường Dev' }
     try {
-      const result = await autoUpdater.checkForUpdates()
-      if (result && result.updateInfo && result.updateInfo.version !== app.getVersion()) {
-         return { success: true, message: `Đã tìm thấy bản cập nhật v${result.updateInfo.version}! Đang tải xuống...` }
-      } else {
-         return { success: true, message: 'Bạn đang dùng phiên bản mới nhất!' }
-      }
+      await autoUpdater.checkForUpdates()
+      return { success: true }
     } catch (err: any) {
       return { success: false, message: 'Lỗi kiểm tra cập nhật: ' + err.message }
     }
   })
 
-  autoUpdater.on('download-progress', (progressObj) => {
-    mainWindow?.webContents.send('app:updateProgress', progressObj)
+  ipcMain.handle('app:installUpdate', () => {
+    autoUpdater.quitAndInstall(false, true)
   })
 
-  autoUpdater.on('update-downloaded', () => {
-    mainWindow?.webContents.send('app:updateDownloaded')
+  ipcMain.handle('app:openReleasePage', () => {
+    void shell.openExternal('https://github.com/hoanmeliora/followfree-client/releases/latest')
   })
+
+  if (!isDev) {
+    autoUpdater.checkForUpdates().catch(err => console.log('Update Error:', err))
+    // Kiểm tra lại mỗi 30 phút
+    setInterval(() => {
+      autoUpdater.checkForUpdates().catch(err => console.log('Update Error:', err))
+    }, 30 * 60 * 1000)
+  }
 
   ipcMain.handle('app:getVersion', () => app.getVersion())
 

@@ -45,6 +45,8 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
   const [appVersion, setAppVersion] = useState<string>('0.1.1')
   const [updateProgress, setUpdateProgress] = useState<{ percent: number; bytesPerSecond: number; total: number; transferred: number } | null>(null)
   const [updateStatus, setUpdateStatus] = useState<string>('')
+  const [updateReady, setUpdateReady] = useState(false)
+  const [updateManual, setUpdateManual] = useState(false)
 
   // Live Console – raw logs từ electron main process
   const [consoleLogs, setConsoleLogs] = useState<{ time: string; message: string; level: 'info' | 'warning' | 'error' }[]>([])
@@ -99,8 +101,11 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
     }
     const onUpdateDownloaded = () => {
       setUpdateProgress(null)
-      setUpdateStatus('✅ Tải xuống hoàn tất! Hãy khởi động lại ứng dụng để cài đặt.')
+      setUpdateReady(true)
+      setUpdateStatus('✅ Tải xuống hoàn tất! Bấm "Khởi động lại & cài đặt" để cập nhật.')
     }
+    const onUpdateStatus = (data: { message: string }) => setUpdateStatus(data.message)
+    const onUpdateAvailable = (data: { manual: boolean }) => setUpdateManual(data.manual)
     const onWorkerLog = (data: { time?: string, message: string; level: 'info' | 'warning' | 'error' }) => {
       const time = data.time || new Date().toLocaleTimeString('vi-VN')
       setConsoleLogs(prev => [...prev, { time, message: data.message, level: data.level }].slice(-500))
@@ -121,6 +126,8 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
     window.electronAPI?.on('worker:warning', onWarning)
     window.electronAPI?.on?.('app:updateProgress', onUpdateProgress)
     window.electronAPI?.on?.('app:updateDownloaded', onUpdateDownloaded)
+    window.electronAPI?.on?.('app:updateStatus', onUpdateStatus)
+    window.electronAPI?.on?.('app:updateAvailable', onUpdateAvailable)
     window.electronAPI?.on?.('worker:log', onWorkerLog)
 
     return () => {
@@ -132,6 +139,8 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
       window.electronAPI?.off('worker:warning', onWarning)
       window.electronAPI?.off?.('app:updateProgress', onUpdateProgress)
       window.electronAPI?.off?.('app:updateDownloaded', onUpdateDownloaded)
+      window.electronAPI?.off?.('app:updateStatus', onUpdateStatus)
+      window.electronAPI?.off?.('app:updateAvailable', onUpdateAvailable)
       window.electronAPI?.off?.('worker:log', onWorkerLog)
     }
   }, [addLog])
@@ -561,7 +570,7 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
                     <div style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 400 }}>Kiểm tra phiên bản mới</div>
                     <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', fontWeight: 300 }}>Hệ thống sẽ kiểm tra và tự động tải về bản cập nhật nếu có.</div>
                     {updateStatus && (
-                        <div style={{ marginTop: '8px', fontSize: '13px', color: updateStatus.includes('hoàn tất') ? '#4CAF50' : '#2196F3', fontWeight: 500 }}>
+                        <div style={{ marginTop: '8px', fontSize: '13px', color: updateStatus.includes('Lỗi') ? '#F44336' : updateStatus.includes('hoàn tất') || updateStatus.includes('mới nhất') ? '#4CAF50' : '#2196F3', fontWeight: 500 }}>
                            {updateStatus}
                         </div>
                     )}
@@ -571,18 +580,34 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
                         </div>
                     )}
                   </div>
-                  <button 
-                    onClick={async () => {
-                      try {
-                        const res = await (window as any).electronAPI.checkUpdate();
-                        if (res.message) setUpdateStatus(res.message);
-                      } catch (e: any) {
-                        alert('Lỗi: ' + e.message);
-                      }
-                    }}
-                    style={{ background: 'var(--accent)', color: '#000', padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 500 }}>
-                    🔄 Kiểm tra ngay
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    {updateReady && (
+                      <button
+                        onClick={() => (window as any).electronAPI.installUpdate()}
+                        style={{ background: '#4CAF50', color: '#fff', padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 500 }}>
+                        ⬇ Khởi động lại & cài đặt
+                      </button>
+                    )}
+                    {updateManual && (
+                      <button
+                        onClick={() => (window as any).electronAPI.openReleasePage()}
+                        style={{ background: '#4CAF50', color: '#fff', padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 500 }}>
+                        ⬇ Tải bản mới
+                      </button>
+                    )}
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await (window as any).electronAPI.checkUpdate();
+                          if (res && res.success === false && res.message) setUpdateStatus(res.message);
+                        } catch (e: any) {
+                          alert('Lỗi: ' + e.message);
+                        }
+                      }}
+                      style={{ background: 'var(--accent)', color: '#000', padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 500 }}>
+                      🔄 Kiểm tra ngay
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
