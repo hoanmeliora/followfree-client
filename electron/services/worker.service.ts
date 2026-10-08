@@ -1,6 +1,7 @@
 import { io, Socket } from 'socket.io-client'
 import { chromium, BrowserContext, Page } from 'playwright'
-import { StoreService } from './store.service'
+import { StoreService, getRestrictionCooldownMs } from './store.service'
+import { ScannerService } from './scanner/scanner.service'
 import { Ipv6Service } from './ipv6.service'
 import { LocalProxyService } from './local-proxy.service'
 import { AutomationService } from './automation.service'
@@ -34,6 +35,8 @@ interface WorkerStatus {
   connected: boolean
   tasksCompleted: number
   totalPointsEarned: number
+  groupPostsTotal: number
+  groupPostsToday: number
   currentTask: string | null
   currentAccountName?: string
   accountCount: number
@@ -51,6 +54,7 @@ export class WorkerService {
   private taskQueue: TaskPayload[] = []
   private roundRobinIndex: Record<string, number> = {}
   private ipv6Available = false
+  private localTimers: Record<string, NodeJS.Timeout> = {}
 
   private readonly ipv6Service = new Ipv6Service()
   private readonly localProxyService = new LocalProxyService()
@@ -64,6 +68,7 @@ export class WorkerService {
   ])
 
   private readonly nurturingService: NurturingService
+  readonly scanner: ScannerService
 
   constructor(
     private readonly store: StoreService,
@@ -79,9 +84,26 @@ export class WorkerService {
          return await this.createBrowserContext(accountId, proxyUrl)
       }
     )
+
+    this.scanner = new ScannerService(
+      this.store,
+      this.ipv6Service,
+      this.localProxyService,
+      async (account, proxyUrl) => {
+        const created = await this.createBrowserContext(account.id, proxyUrl)
+        await this.injectSessionCookies(created.context, account, '.facebook.com')
+        return created
+      },
+      () => this.currentTask !== null || this.nurturingService.isRunning(),
+      (channel, data) => this.pushEvent(channel, data),
+    )
     
     this.store.onAccountsChanged(() => {
       this.reportCapacityUpdate()
+    })
+
+    this.store.onPostStatsChanged(() => {
+      this.pushEvent('worker:status', this.getStatus())
     })
 
     this.store.onBlacklistAdded((url) => {
@@ -140,12 +162,15 @@ export class WorkerService {
 
   getStatus(): WorkerStatus {
     const stats = this.store.getWorkerStats()
+    const postStats = this.store.getPostStats()
     const accounts = this.store.getAccounts()
     return {
       running: this.running,
       connected: this.socket?.connected ?? false,
       tasksCompleted: stats.tasksCompleted,
       totalPointsEarned: stats.totalPointsEarned,
+      groupPostsTotal: postStats.total,
+      groupPostsToday: postStats.today,
       currentTask: this.currentTask,
       currentAccountName: this.currentAccountName,
       accountCount: accounts.length,
@@ -219,6 +244,48 @@ export class WorkerService {
       memoryMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
     })
     this.pushEvent('worker:status', this.getStatus())
+    this.pushEvent('worker:status', this.getStatus())
+  }
+
+  startLocalCampaign(config: any) {
+    const campaignId = 'local_autopost'
+    if (this.localTimers[campaignId]) {
+      clearInterval(this.localTimers[campaignId])
+    }
+
+    const fireTask = () => {
+      this.taskQueue.push({
+        id: `task_${Date.now()}`,
+        campaignId,
+        campaign: {
+          id: campaignId,
+          platform: config.platform,
+          actionType: config.actionType,
+          targetUrl: config.targetUrl,
+        },
+        ...config // Gắn luôn config (bao gồm metadata.postData)
+      })
+      console.log(`[LocalScheduler] Fired task cho ${campaignId}`)
+      this.processNextTask()
+    }
+
+    // Fire lần đầu tiên luôn
+    fireTask()
+
+    // Lên lịch lặp lại nếu có
+    if (config.metadata?.schedule?.repeat && config.metadata.schedule.interval > 0) {
+      const intervalMs = config.metadata.schedule.interval * 60_000
+      this.localTimers[campaignId] = setInterval(fireTask, intervalMs)
+      console.log(`[LocalScheduler] Lên lịch lặp lại mỗi ${config.metadata.schedule.interval} phút`)
+    }
+  }
+
+  stopLocalCampaign(campaignId = 'local_autopost') {
+    if (this.localTimers[campaignId]) {
+      clearInterval(this.localTimers[campaignId])
+      delete this.localTimers[campaignId]
+      console.log(`[LocalScheduler] Đã dừng lịch trình ${campaignId}`)
+    }
   }
 
   private async processNextTask() {
@@ -249,9 +316,22 @@ export class WorkerService {
     try {
       const accounts = this.store.getAccounts()
       const doneIds = new Set(task.doneAccountIds || [])
-      let matchingAccounts = accounts.filter(
-        (a) => (a.platform || '').toUpperCase() === (task.campaign.platform || '').toUpperCase() && a.status === 'ACTIVE' && !doneIds.has(a.id),
-      )
+      let matchingAccounts = accounts.filter((a) => {
+          if ((a.platform || '').toUpperCase() !== (task.campaign.platform || '').toUpperCase()) return false;
+          if (doneIds.has(a.id)) return false;
+
+          if (a.status === 'ACTIVE') return true;
+          
+          if (a.status === 'RESTRICTED') {
+              // Thử lại sau cooldown tăng dần (24h -> 3 ngày -> 7 ngày)
+              const restrictedAt = a.restrictedAt || 0;
+              const cooldownMs = getRestrictionCooldownMs(a.restrictCount || 1);
+              if (Date.now() - restrictedAt > cooldownMs) {
+                  return true; // Cho phép dùng lại để thử
+              }
+          }
+          return false;
+      })
 
       if (!this.ipv6Available) {
         matchingAccounts = matchingAccounts.filter((a) => {
@@ -289,9 +369,17 @@ export class WorkerService {
       
       if (result === 'ALREADY_DONE') {
          this.reportTaskResult(task.id, account.id, false, 'ALREADY_DONE')
+      } else if (result === 'RESTRICTED') {
+         console.warn(`[Worker] Tài khoản ${account.username} bị giới hạn/cấm đăng. Cập nhật trạng thái -> RESTRICTED`);
+         this.store.updateAccountStatus(account.id, 'RESTRICTED');
+         this.reportTaskResult(task.id, account.id, false, 'RESTRICTED');
       } else {
-         const success = result === true;
-         this.reportTaskResult(task.id, account.id, success)
+          const success = result === true;
+          if (success && account.status === 'RESTRICTED') {
+            console.log(`[Worker] Tài khoản ${account.username} đã hết hạn chế -> ACTIVE`);
+            this.store.updateAccountStatus(account.id, 'ACTIVE');
+          }
+          this.reportTaskResult(task.id, account.id, success)
          if (success) {
            const stats = this.store.getWorkerStats()
            this.store.updateWorkerStats({
@@ -416,6 +504,36 @@ export class WorkerService {
     return { context, page }
   }
 
+  /** Loads the stored login cookies into the browser profile when it has no active session yet. */
+  private async injectSessionCookies(context: BrowserContext, account: { cookieData?: string }, fallbackDomain: string): Promise<void> {
+    const existingCookies = await context.cookies()
+    const hasSession = existingCookies.some(c => c.name === 'c_user' || c.name === 'sessionid')
+    if (hasSession || !account.cookieData) return
+
+    let parsedCookies: any[] = []
+    try {
+      parsedCookies = JSON.parse(account.cookieData)
+      // Xử lý lỗi sameSite của Playwright (chỉ chấp nhận Strict, Lax, None)
+      parsedCookies = parsedCookies.map(cookie => {
+        if (cookie.sameSite) {
+          const sameSiteLower = cookie.sameSite.toLowerCase()
+          if (['strict', 'lax', 'none'].includes(sameSiteLower)) {
+            cookie.sameSite = cookie.sameSite.charAt(0).toUpperCase() + cookie.sameSite.slice(1).toLowerCase()
+          } else {
+            delete cookie.sameSite
+          }
+        }
+        return cookie
+      })
+    } catch {
+      parsedCookies = account.cookieData.split(';').map((pair: string) => {
+        const [name, ...rest] = pair.trim().split('=')
+        return { name, value: rest.join('='), domain: fallbackDomain, path: '/' }
+      })
+    }
+    await context.addCookies(parsedCookies)
+  }
+
   private async executeWithPlaywright(
     task: TaskPayload,
     account: any,
@@ -445,34 +563,7 @@ export class WorkerService {
     const { context, page } = await this.createBrowserContext(account.id, proxyUrl)
 
     try {
-      const existingCookies = await context.cookies();
-      const hasSession = existingCookies.some(c => c.name === 'c_user' || c.name === 'sessionid');
-
-      if (!hasSession && account.cookieData) {
-        let parsedCookies: any[] = []
-        try {
-           parsedCookies = JSON.parse(account.cookieData)
-           // Xử lý lỗi sameSite của Playwright (chỉ chấp nhận Strict, Lax, None)
-           parsedCookies = parsedCookies.map(cookie => {
-              if (cookie.sameSite) {
-                 const sameSiteLower = cookie.sameSite.toLowerCase()
-                 if (['strict', 'lax', 'none'].includes(sameSiteLower)) {
-                    cookie.sameSite = cookie.sameSite.charAt(0).toUpperCase() + cookie.sameSite.slice(1).toLowerCase()
-                 } else {
-                    delete cookie.sameSite
-                 }
-              }
-              return cookie
-           })
-        } catch {
-           const domain = task.campaign.platform === 'TIKTOK' ? '.tiktok.com' : '.facebook.com'
-           parsedCookies = account.cookieData.split(';').map((pair: string) => {
-              const [name, ...rest] = pair.trim().split('=')
-              return { name, value: rest.join('='), domain, path: '/' }
-           })
-        }
-        await context.addCookies(parsedCookies)
-      }
+      await this.injectSessionCookies(context, account, task.campaign.platform === 'TIKTOK' ? '.tiktok.com' : '.facebook.com')
 
       // Với SHARE_GROUP và POST_GROUP, không nên vào targetUrl trước vì kịch bản sẽ tự xử lý.
       // Thay vào đó, vào trang chủ Facebook để check login.
@@ -490,7 +581,15 @@ export class WorkerService {
       await page.waitForTimeout(4000)
 
       const isLoginScreen = await page.evaluate(() => {
-         return !!document.querySelector('input[name="email"], input[name="pass"]') || window.location.href.includes('login')
+         const hasLoginInputs = !!document.querySelector('input[name="email"], input[name="pass"]');
+         const isLoginUrl = window.location.href.includes('login') || window.location.href.includes('checkpoint');
+         
+         const textContent = document.body?.textContent?.toLowerCase() || '';
+         const hasCheckpointModal = textContent.includes('confirm your identity') || 
+                                    textContent.includes('certain actions have been restricted') ||
+                                    textContent.includes('xác nhận danh tính');
+                                    
+         return hasLoginInputs || isLoginUrl || hasCheckpointModal;
       }).catch(() => false)
 
       if (isLoginScreen) {

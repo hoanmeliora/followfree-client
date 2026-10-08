@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Campaigns
   createCampaign: (data: any) => ipcRenderer.invoke('campaign:create', data),
+  createLocalCampaign: (data: any) => ipcRenderer.invoke('campaign:local', data),
   getCampaigns: () => ipcRenderer.invoke('campaign:list'),
   cancelCampaign: (id: string) => ipcRenderer.invoke('campaign:cancel', id),
   previewTarget: (url: string, actionType: string) => ipcRenderer.invoke('campaign:preview', url, actionType),
@@ -54,6 +55,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Page Farm
   pageFarmStart: (accountId: string, cookieStr: string, userAgent: string) => ipcRenderer.invoke('pagefarm:start', { accountId, cookieStr, userAgent }),
 
+  // Scanner (Săn khách)
+  scannerGetConfig: () => ipcRenderer.invoke('scanner:getConfig'),
+  scannerSaveConfig: (input: { groups: string[]; keywords: string[]; intervalMinutes: number; notifyRecipient?: string }) => ipcRenderer.invoke('scanner:saveConfig', input),
+  scannerStart: () => ipcRenderer.invoke('scanner:start'),
+  scannerStop: () => ipcRenderer.invoke('scanner:stop'),
+  scannerGetLeads: () => ipcRenderer.invoke('scanner:getLeads'),
+  scannerUpdateLeadStatus: (id: string, status: string) => ipcRenderer.invoke('scanner:updateLeadStatus', id, status),
+  scannerClearLeads: () => ipcRenderer.invoke('scanner:clearLeads'),
+  scannerOpenExternal: (url: string) => ipcRenderer.invoke('scanner:openExternal', url),
+
+  // AutoPost
+  getAutoPostConfig: () => ipcRenderer.invoke('getAutoPostConfig'),
+  setAutoPostConfig: (config: any) => ipcRenderer.invoke('setAutoPostConfig', config),
+
   // Window controls
   minimizeWindow: () => ipcRenderer.send('window:minimize'),
   maximizeWindow: () => ipcRenderer.send('window:maximize'),
@@ -76,5 +91,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   off: (channel: string, callback: (...args: any[]) => void) => {
     ipcRenderer.removeListener(channel, callback)
+  },
+  onScannerEvent: (channel: 'scanner:new_lead' | 'scanner:status' | 'scanner:log', callback: (data: any) => void) => {
+    const listener = (_event: unknown, data: any) => callback(data)
+    ipcRenderer.on(channel, listener)
+    return () => {
+      ipcRenderer.removeListener(channel, listener)
+    }
   },
 })

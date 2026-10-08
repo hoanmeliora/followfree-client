@@ -54,6 +54,19 @@ declare global {
       autoRegStop: () => Promise<any>
       onAutoRegLog: (cb: (e: any, msg: string) => void) => () => void
 
+      scannerGetConfig: () => Promise<{ groups: string[]; keywords: string[]; intervalMinutes: number; isRunning: boolean; notifyRecipient?: string }>
+      scannerSaveConfig: (input: { groups: string[]; keywords: string[]; intervalMinutes: number; notifyRecipient?: string }) => Promise<{ success: boolean; error?: string }>
+      scannerStart: () => Promise<{ success: boolean; error?: string }>
+      scannerStop: () => Promise<{ success: boolean }>
+      scannerGetLeads: () => Promise<Array<{
+        id: string; groupName?: string; authorName: string; authorUrl?: string; content: string
+        postUrl: string; matchedKeywords: string[]; timestamp: number; status: 'new' | 'read' | 'contacted'
+      }>>
+      scannerUpdateLeadStatus: (id: string, status: 'new' | 'read' | 'contacted') => Promise<{ success: boolean }>
+      scannerClearLeads: () => Promise<{ success: boolean }>
+      scannerOpenExternal: (url: string) => Promise<{ success: boolean }>
+      onScannerEvent: (channel: 'scanner:new_lead' | 'scanner:status' | 'scanner:log', cb: (data: any) => void) => () => void
+
       minimizeWindow: () => void
       maximizeWindow: () => void
       hideWindow: () => void

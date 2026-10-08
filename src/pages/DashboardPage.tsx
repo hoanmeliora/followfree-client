@@ -3,6 +3,7 @@ import './DashboardPage.css'
 
 import AutoRegPage from './AutoRegPage'
 import AutoPostPage from './AutoPostPage'
+import { ScannerPage } from './ScannerPage'
 
 interface Props {
   session: {
@@ -18,6 +19,8 @@ interface WorkerStatus {
   connected: boolean
   tasksCompleted: number
   totalPointsEarned: number
+  groupPostsTotal: number
+  groupPostsToday: number
   currentTask: string | null
   currentAccountName?: string
   accountCount: number
@@ -33,6 +36,7 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
   const [status, setStatus] = useState<WorkerStatus>({
     running: false, connected: false,
     tasksCompleted: 0, totalPointsEarned: 0,
+    groupPostsTotal: 0, groupPostsToday: 0,
     currentTask: null, accountCount: 0,
   })
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -40,7 +44,7 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '' })
   const [passwordError, setPasswordError] = useState('')
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'accounts' | 'campaigns' | 'deposits' | 'emails' | 'autoreg' | 'autopost' | 'settings'>('dashboard')
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'accounts' | 'campaigns' | 'deposits' | 'emails' | 'autoreg' | 'autopost' | 'scanner' | 'settings'>('dashboard')
   const [appSettings, setAppSettings] = useState({ runHeadless: false, autoJoinKeywords: '' })
   const [appVersion, setAppVersion] = useState<string>('0.1.1')
   const [updateProgress, setUpdateProgress] = useState<{ percent: number; bytesPerSecond: number; total: number; transferred: number } | null>(null)
@@ -310,6 +314,13 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
               <span className="nav-icon">🔄</span> Auto Post Nhóm
             </button>
             <button
+              className={`nav-item ${activeTab === 'scanner' ? 'active' : ''}`}
+              onClick={() => setActiveTab('scanner')}
+              style={{ background: activeTab === 'scanner' ? '' : 'rgba(33, 150, 243, 0.1)', color: activeTab === 'scanner' ? '' : '#2196F3' }}
+            >
+              <span className="nav-icon">🎯</span> Săn Khách
+            </button>
+            <button
               className={`nav-item ${activeTab === 'autoreg' ? 'active' : ''}`}
               onClick={() => setActiveTab('autoreg')}
               style={{ background: activeTab === 'autoreg' ? '' : 'rgba(233, 69, 96, 0.1)', color: activeTab === 'autoreg' ? '' : '#e94560' }}
@@ -370,6 +381,11 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
                   <div className="stat-icon">👤</div>
                   <div className="stat-value">{status.accountCount.toLocaleString()}</div>
                   <div className="stat-label">Tài khoản clone</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-icon">📝</div>
+                  <div className="stat-value">{status.groupPostsTotal.toLocaleString()}</div>
+                  <div className="stat-label">Bài đã đăng (hôm nay: {status.groupPostsToday.toLocaleString()})</div>
                 </div>
               </div>
 
@@ -474,6 +490,8 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
           {activeTab === 'autopost' && (
             <AutoPostPage addLog={addLog} session={session} />
           )}
+
+          {activeTab === 'scanner' && <ScannerPage />}
 
           {activeTab === 'settings' && (
             <div className="accounts-section">

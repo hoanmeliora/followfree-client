@@ -721,6 +721,11 @@ function setupIpcHandlers(
     return campaignService.createCampaign(data.platform, data.actionType, data.targetUrl, data.targetCount, data.startCount, data.metadata)
   })
 
+  ipcMain.handle('campaign:local', async (_e, data) => {
+    workerService?.startLocalCampaign(data)
+    return { success: true }
+  })
+
   ipcMain.handle('campaign:cancel', async (_e, id: string) => {
     return campaignService.cancelCampaign(id)
   })
@@ -769,6 +774,44 @@ function setupIpcHandlers(
   // Page Farm Auto Create
   ipcMain.handle('pagefarm:start', async (_e, { accountId, cookieStr, userAgent }) => {
     return pageFarmService!.createSinglePage(accountId, cookieStr, userAgent)
+  })
+
+  // Scanner (Săn khách)
+  ipcMain.handle('scanner:getConfig', async () => workerService!.scanner.getConfig())
+  ipcMain.handle('scanner:saveConfig', async (_e, input: { groups: string[]; keywords: string[]; intervalMinutes: number; notifyRecipient?: string }) => {
+    const isValid = input && Array.isArray(input.groups) && Array.isArray(input.keywords)
+      && (input.notifyRecipient === undefined || typeof input.notifyRecipient === 'string')
+    if (!isValid) return { success: false, error: 'Dữ liệu không hợp lệ' }
+    return workerService!.scanner.saveConfig(input)
+  })
+  ipcMain.handle('scanner:start', async () => workerService!.scanner.start())
+  ipcMain.handle('scanner:stop', async () => {
+    await workerService!.scanner.stop()
+    return { success: true }
+  })
+  ipcMain.handle('scanner:getLeads', async () => storeService.getLeads())
+  ipcMain.handle('scanner:updateLeadStatus', async (_e, id: string, status: 'new' | 'read' | 'contacted') => {
+    if (typeof id !== 'string' || !['new', 'read', 'contacted'].includes(status)) return { success: false }
+    storeService.updateLeadStatus(id, status)
+    return { success: true }
+  })
+  ipcMain.handle('scanner:clearLeads', async () => {
+    storeService.clearLeads()
+    return { success: true }
+  })
+  
+  ipcMain.handle('getAutoPostConfig', async () => {
+    return storeService.getAutoPostConfig()
+  })
+  
+  ipcMain.handle('setAutoPostConfig', async (_e, config) => {
+    storeService.updateAutoPostConfig(config)
+    return { success: true }
+  })
+  ipcMain.handle('scanner:openExternal', async (_e, url: string) => {
+    if (typeof url !== 'string' || !/^https:\/\/([\w-]+\.)?facebook\.com\//i.test(url)) return { success: false }
+    await shell.openExternal(url)
+    return { success: true }
   })
 
   // Settings
@@ -843,6 +886,7 @@ app.whenReady().then(async () => {
 
   setupIpcHandlers(authService, storeService, campaignService, depositService, emailService, accountSyncService)
   createWindow()
+  workerService.scanner.resumeIfNeeded()
   createTray()
   
   // ===== Auto Update =====

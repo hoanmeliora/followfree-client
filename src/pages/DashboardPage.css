@@ -154,7 +154,7 @@
 
 /* Stats Grid */
 .stats-grid {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
 }
 .stat-card {
   padding: 24px 20px; background: rgba(255,255,255,0.02);
@@ -264,6 +264,7 @@
   padding: 8px 0;
   font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   font-size: 11.5px; line-height: 1.6;
+  user-select: text;
 }
 .console-empty { color: var(--text-muted); font-size: 12px; text-align: center; padding: 24px; font-family: inherit; }
 .console-line {

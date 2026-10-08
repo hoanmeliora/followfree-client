@@ -92,7 +92,7 @@ export class AutoRegService {
         if (this.gmailAccount && this.gmailAccount.cookieData) {
             try {
                 this.gmailCookies = JSON.parse(this.gmailAccount.cookieData);
-            } catch (e) { }
+            } catch (e) { console.warn("[AutoReg] Ignored non-fatal error:", (e as Error)?.message) }
         }
 
         this.log(`[Auto-Reg] Bắt đầu tạo ${config.count} nick cho tên miền ${config.domain || 'Mẹo Dấu Chấm'}...`);
@@ -197,7 +197,7 @@ export class AutoRegService {
         if (this.gmailAccount && this.gmailAccount.cookieData) {
             try {
                 this.gmailCookies = JSON.parse(this.gmailAccount.cookieData);
-            } catch (e) { }
+            } catch (e) { console.warn("[AutoReg] Ignored non-fatal error:", (e as Error)?.message) }
         }
         return true;
     }
@@ -315,7 +315,7 @@ export class AutoRegService {
             this.log('[Auto-Reg] Đang mở trình duyệt ẩn danh (đã fake IP + Vân tay) để tạo Gmail...');
             try {
                 await this.browserPage.goto('https://accounts.google.com/signup', { waitUntil: 'networkidle' });
-            } catch (e) { }
+            } catch (e) { console.warn("[AutoReg] Ignored non-fatal error:", (e as Error)?.message) }
 
             // Không chạy tiếp vòng lặp tự động điền form
             this.isRunning = false;
@@ -342,7 +342,7 @@ export class AutoRegService {
                             clicked = true;
                             break;
                         }
-                    } catch (e) {}
+                    } catch (e) { console.warn("[AutoReg] Ignored non-fatal error:", (e as Error)?.message) }
                     
                     try {
                         const linkBtn = this.browserPage.getByRole('link', { name: text }).first();
@@ -351,7 +351,7 @@ export class AutoRegService {
                             clicked = true;
                             break;
                         }
-                    } catch (e) {}
+                    } catch (e) { console.warn("[AutoReg] Ignored non-fatal error:", (e as Error)?.message) }
                 }
 
                 
@@ -451,7 +451,7 @@ export class AutoRegService {
                             await passLoc.fill(data.password);
                             didFillSomething = true;
                         }
-                    } catch (e) {}
+                    } catch (e) { console.warn("[AutoReg] Ignored non-fatal error:", (e as Error)?.message) }
 
                     // 2.2 Fallback nếu không tìm thấy Name/Aria-label (Dùng Index)
                     // 2.2 Fallback nếu không tìm thấy Name/Aria-label (Dùng Index)
@@ -856,7 +856,7 @@ export class AutoRegService {
                                             }
                                             break;
                                         }
-                                    } catch (e) { }
+                                    } catch (e) { console.warn("[AutoReg] Ignored non-fatal error:", (e as Error)?.message) }
                                 }
 
                                 if (friendsAdded > 0) {

@@ -6,40 +6,64 @@ interface Props {
   session: any;
 }
 
+const MIN_INTERVAL_MINUTES = { POST: 180, SHARE: 5 } as const;
+
 export default function AutoPostPage({ addLog, session }: Props) {
-  const [mode, setMode] = useState<'SHARE' | 'POST'>(() => (localStorage.getItem('autopost_mode') as any) || 'POST');
-  const [groupIds, setGroupIds] = useState(() => localStorage.getItem('autopost_groupIds') || '');
-  const [interval, setIntervalTime] = useState(() => localStorage.getItem('autopost_interval') || '60');
-  const [content1, setContent1] = useState(() => localStorage.getItem('autopost_content1') || '');
-  const [content2, setContent2] = useState(() => localStorage.getItem('autopost_content2') || '');
-  const [content3, setContent3] = useState(() => localStorage.getItem('autopost_content3') || '');
-  const [images, setImages] = useState<Array<{ path: string, preview: string }>>(() => {
-    try {
-      const stored = localStorage.getItem('autopost_images');
-      const parsed = stored ? JSON.parse(stored) : [];
-      // Khôi phục bộ lọc: Chỉ giữ lại ảnh nếu có path (dùng App)
-      return Array.isArray(parsed) ? parsed.filter((img: any) => img && img.path && img.path.trim().length > 0) : [];
-    } catch { return []; }
-  });
-  const [targetUrl, setTargetUrl] = useState(() => localStorage.getItem('autopost_targetUrl') || '');
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [mode, setMode] = useState<'SHARE' | 'POST'>('POST');
+  const [groupIds, setGroupIds] = useState('');
+  const [interval, setIntervalTime] = useState('180');
+  const [repeatEnabled, setRepeatEnabled] = useState(true);
+  const [content1, setContent1] = useState('');
+  const [content2, setContent2] = useState('');
+  const [content3, setContent3] = useState('');
+  const [images, setImages] = useState<Array<{ path: string, preview: string }>>([]);
+  const [targetUrl, setTargetUrl] = useState('');
+  const [isAnonymous, setIsAnonymous] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{text: string, type: 'success' | 'error'} | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem('autopost_mode', mode);
-    localStorage.setItem('autopost_groupIds', groupIds);
-    localStorage.setItem('autopost_interval', interval);
-    localStorage.setItem('autopost_content1', content1);
-    localStorage.setItem('autopost_content2', content2);
-    localStorage.setItem('autopost_content3', content3);
-    localStorage.setItem('autopost_images', JSON.stringify(images));
-    localStorage.setItem('autopost_targetUrl', targetUrl);
-  }, [mode, groupIds, interval, content1, content2, content3, images, targetUrl]);
+    (window as any).electronAPI?.getAutoPostConfig().then((config: any) => {
+      if (config) {
+        if (config.mode) setMode(config.mode);
+        if (config.groupIds !== undefined) setGroupIds(config.groupIds);
+        if (config.interval !== undefined) setIntervalTime(config.interval);
+        if (config.repeatEnabled !== undefined) setRepeatEnabled(config.repeatEnabled);
+        if (config.content1 !== undefined) setContent1(config.content1);
+        if (config.content2 !== undefined) setContent2(config.content2);
+        if (config.content3 !== undefined) setContent3(config.content3);
+        if (config.images) setImages(config.images.filter((img: any) => img && img.path && img.path.trim().length > 0));
+        if (config.targetUrl !== undefined) setTargetUrl(config.targetUrl);
+        if (config.isAnonymous !== undefined) setIsAnonymous(config.isAnonymous);
+      }
+      setIsLoaded(true);
+    }).catch((e: any) => {
+      console.error('Failed to load auto post config:', e);
+      setIsLoaded(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    (window as any).electronAPI?.setAutoPostConfig({
+      mode, groupIds, interval, repeatEnabled, content1, content2, content3, images, targetUrl, isAnonymous
+    });
+  }, [isLoaded, mode, groupIds, interval, repeatEnabled, content1, content2, content3, images, targetUrl, isAnonymous]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return;
     setStatusMsg(null);
+    if (!groupIds) return alert('Vui lòng nhập danh sách nhóm!');
     const groups = groupIds.split('\n').map((g: string) => g.trim()).filter((g: string) => g);
     if (groups.length === 0) return alert('Vui lòng nhập ít nhất 1 Group ID hoặc Từ khóa');
+
+    const minInterval = MIN_INTERVAL_MINUTES[mode];
+    const intervalMinutes = parseInt(interval) || 0;
+    if (repeatEnabled && intervalMinutes < minInterval) {
+      return alert(`Tần suất lặp lại tối thiểu là ${minInterval} phút${mode === 'POST' ? ' (3 giờ) để tránh spam nhóm' : ''}!`);
+    }
 
     const BLACKLIST = [
       'vay', 'tín dụng', 'bốc bát', 'bát họ', 'cầm đồ', 'cho vay',
@@ -59,7 +83,8 @@ export default function AutoPostPage({ addLog, session }: Props) {
 
     const metadata: any = {
       schedule: {
-        interval: parseInt(interval) || 60,
+        repeat: repeatEnabled,
+        interval: intervalMinutes,
         groupIds: groups,
         type: mode
       }
@@ -72,11 +97,12 @@ export default function AutoPostPage({ addLog, session }: Props) {
       if (!finalContent.trim() && validImages.length === 0) {
         return alert('Vui lòng nhập nội dung bài đăng hoặc chọn ít nhất 1 ảnh hợp lệ!');
       }
-      metadata.postData = { content: finalContent, imageUrls: validImages };
+      metadata.postData = { content: finalContent, imageUrls: validImages, isAnonymous };
     }
 
+    setIsLoading(true);
     try {
-      const res = await window.electronAPI?.createCampaign({
+      const res = await window.electronAPI?.createLocalCampaign({
         platform: 'FACEBOOK',
         actionType: mode === 'POST' ? 'POST_GROUP' : 'SHARE_GROUP',
         targetUrl: mode === 'POST' ? 'AUTO_POST' : targetUrl,
@@ -96,6 +122,8 @@ export default function AutoPostPage({ addLog, session }: Props) {
     } catch (err: any) {
       addLog(`❌ Lỗi hệ thống: ${err.message}`, 'error');
       setStatusMsg({ text: `Lỗi hệ thống: ${err.message}`, type: 'error' });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -108,7 +136,7 @@ export default function AutoPostPage({ addLog, session }: Props) {
         <p className="section-desc">Hệ thống sẽ tự động giao việc cho Bot chạy lặp lại theo chu kỳ hẹn giờ.</p>
       </div>
       
-      <form onSubmit={handleSubmit} style={{ 
+      <div style={{ 
         display: 'flex', flexDirection: 'column', gap: '20px', 
         background: 'var(--bg-card)', padding: '30px', borderRadius: 'var(--radius)', 
         border: '1px solid var(--border)', boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
@@ -152,7 +180,6 @@ export default function AutoPostPage({ addLog, session }: Props) {
               value={targetUrl} 
               onChange={e => setTargetUrl(e.target.value)} 
               placeholder="https://facebook.com/..." 
-              required 
               style={{
                 width: '100%', padding: '12px 14px', background: 'var(--bg-primary)',
                 border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
@@ -284,7 +311,6 @@ export default function AutoPostPage({ addLog, session }: Props) {
             value={groupIds} 
             onChange={e => setGroupIds(e.target.value)} 
             placeholder="Ví dụ:&#10;sinh viên&#10;bất động sản&#10;kiếm tiền online" 
-            required 
             style={{
               width: '100%', padding: '12px 14px', background: 'var(--bg-primary)',
               border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
@@ -295,22 +321,57 @@ export default function AutoPostPage({ addLog, session }: Props) {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>⏳ Tần suất lặp lại (Tính bằng Phút):</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <input 
-              type="number" 
-              value={interval} 
-              onChange={e => setIntervalTime(e.target.value)} 
-              min="5" 
-              required 
-              style={{
-                width: '120px', padding: '12px 14px', background: 'var(--bg-primary)',
-                border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-                color: 'var(--text-primary)', fontSize: '16px', fontWeight: 'bold', outline: 'none'
-              }}
+          <label
+            htmlFor="autopost-repeat-toggle"
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)', cursor: 'pointer' }}
+          >
+            <input
+              id="autopost-repeat-toggle"
+              type="checkbox"
+              checked={repeatEnabled}
+              onChange={e => setRepeatEnabled(e.target.checked)}
             />
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Ví dụ: 60 = Đăng 1 lần mỗi 1 tiếng</span>
-          </div>
+            🔁 Đăng lặp lại
+          </label>
+          {repeatEnabled ? (
+            <>
+              <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>⏳ Tần suất lặp lại (Tính bằng Phút):</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <input
+                  id="autopost-interval-input"
+                  type="number"
+                  value={interval}
+                  onChange={e => setIntervalTime(e.target.value)}
+                  required
+                  style={{
+                    width: '120px', padding: '12px 14px', background: 'var(--bg-primary)',
+                    border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+                    color: 'var(--text-primary)', fontSize: '16px', fontWeight: 'bold', outline: 'none'
+                  }}
+                />
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  {mode === 'POST'
+                    ? 'Tối thiểu 180 phút (3 giờ). Ví dụ: 180 = Đăng 1 lần mỗi 3 tiếng'
+                    : 'Ví dụ: 60 = Đăng 1 lần mỗi 1 tiếng'}
+                </span>
+              </div>
+            </>
+          ) : (
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Chỉ đăng 1 lần, không lặp lại.</span>
+          )}
+
+          {mode === 'POST' && (
+            <label
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)', cursor: 'pointer', marginTop: '10px' }}
+            >
+              <input
+                type="checkbox"
+                checked={isAnonymous}
+                onChange={e => setIsAnonymous(e.target.checked)}
+              />
+              🕵️ Đăng ẩn danh (Giúp giảm tỷ lệ bị khoá nick/bắt xác minh)
+            </label>
+          )}
         </div>
 
         {statusMsg && (
@@ -328,18 +389,20 @@ export default function AutoPostPage({ addLog, session }: Props) {
         )}
 
         <button 
-          type="submit" 
+          type="button" 
+          onClick={handleSubmit}
+          disabled={isLoading}
           style={{
             marginTop: '10px', padding: '14px', background: 'linear-gradient(135deg, var(--accent), #a78bfa)',
             border: 'none', borderRadius: 'var(--radius-sm)', color: '#fff', fontSize: '15px', fontWeight: 600,
-            cursor: 'pointer', boxShadow: '0 4px 20px var(--accent-glow)', transition: 'all 0.2s', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px'
+            cursor: isLoading ? 'not-allowed' : 'pointer', opacity: isLoading ? 0.7 : 1, boxShadow: '0 4px 20px var(--accent-glow)', transition: 'all 0.2s', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px'
           }}
-          onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-          onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+          onMouseOver={(e) => !isLoading && (e.currentTarget.style.transform = 'translateY(-2px)')}
+          onMouseOut={(e) => !isLoading && (e.currentTarget.style.transform = 'translateY(0)')}
         >
-          🚀 Kích Hoạt Lịch Trình (Miễn Phí)
+          {isLoading ? '⏳ Đang xử lý...' : '🚀 Kích Hoạt Lịch Trình (Miễn Phí)'}
         </button>
-      </form>
+      </div>
     </div>
   );
 }

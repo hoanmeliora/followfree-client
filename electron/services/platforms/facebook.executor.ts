@@ -5,6 +5,9 @@ import { IPlatformExecutor } from './platform-executor.interface'
 
 import { StoreService } from '../store.service'
 
+const GROUP_POST_COOLDOWN_HOURS = Number(process.env.GROUP_POST_COOLDOWN_HOURS) || 3
+const GROUP_POST_COOLDOWN_MS = GROUP_POST_COOLDOWN_HOURS * 60 * 60_000
+
 export class FacebookExecutor implements IPlatformExecutor {
   readonly platform = 'FACEBOOK'
 
@@ -216,7 +219,7 @@ export class FacebookExecutor implements IPlatformExecutor {
                   mainAccountName: mainName, 
                   pageIndex: 0, 
                   tasksDone: 0, 
-                  maxTasks: 10 + Math.floor(Math.random() * 3)
+                  maxTasks: 5
               };
               this.accountPageState[accountId] = state;
               console.log(`[Facebook] ✅ Đã lưu bộ nhớ Nick chính là: "${mainName}"`);
@@ -256,7 +259,7 @@ export class FacebookExecutor implements IPlatformExecutor {
                       state.pageIndex = 0; // Xoay vòng lại từ Page đầu tiên
                   }
                   state.tasksDone = 0;
-                  state.maxTasks = 10 + Math.floor(Math.random() * 3);
+                  state.maxTasks = 5;
               }
               
               const targetProfile = pagesOnly[state.pageIndex];
@@ -923,6 +926,25 @@ export class FacebookExecutor implements IPlatformExecutor {
             if (await this.automationService.simulateHumanClick(page, selector)) {
                // Chờ 3 giây để xem Facebook có phun ra cái bảng đen báo lỗi không
                await this.automationService.wait(3000);
+
+               // Kiểm tra thông báo cấm đăng/hạn chế
+               const isRestricted = await page.evaluate(() => {
+                   const texts = Array.from(document.querySelectorAll('span, div')).map(el => (el.textContent || '').toLowerCase());
+                   return texts.some(t => 
+                     t.includes('bạn bị hạn chế') || 
+                     t.includes('hiện tại đang cấm đăng') ||
+                     t.includes('không thể đăng') ||
+                     t.includes("can't post right now") ||
+                     t.includes('hành động của bạn bị hạn chế') ||
+                     t.includes('you are restricted') ||
+                     t.includes("you're restricted")
+                   );
+               });
+
+               if (isRestricted) {
+                   console.error('[Facebook] 🚨 Phát hiện thông báo cấm đăng/hạn chế từ Facebook để tránh spam!');
+                   return 'RESTRICTED';
+               }
                
                const errorToast = page.locator('span, div').filter({ hasText: /Đã xảy ra lỗi/i }).first();
                if (await errorToast.isVisible().catch(() => false)) {
@@ -986,19 +1008,25 @@ export class FacebookExecutor implements IPlatformExecutor {
       console.log(`[Facebook] 🔎 Đang lấy danh sách các nhóm đã tham gia...`);
       await page.goto('https://www.facebook.com/groups/joins/?nav_source=tab');
       await this.automationService.wait(5000);
-      let joinedGroups: string[] = [];
-      for (let s = 0; s < 5; s++) {
-        const urls = await page.evaluate(() => {
-          return Array.from(document.querySelectorAll('a[href*="/groups/"]'))
-            .map((a: any) => a.href.split('?')[0])
-            .filter(href => !href.includes('/groups/joins') && !href.includes('/groups/discover') && !href.includes('/groups/feed'));
-        });
-        joinedGroups = [...new Set([...joinedGroups, ...urls])];
-        await page.mouse.wheel(0, 1000);
-        await new Promise(r => setTimeout(r, 1500));
+      const reservedSegments = ['joins', 'discover', 'feed', 'create', 'notifications', 'requests', 'search', 'category', 'you'];
+      const joinedGroups = new Set<string>();
+      let noNewCount = 0;
+      for (let s = 0; s < 40 && noNewCount < 3; s++) {
+        const hrefs = await page.evaluate(() =>
+          Array.from(document.querySelectorAll('a[href*="/groups/"]')).map(a => (a as HTMLAnchorElement).href)
+        );
+        const before = joinedGroups.size;
+        for (const href of hrefs) {
+          const match = href.match(/^https:\/\/(?:www|web|m)\.facebook\.com\/groups\/([^/?#]+)/);
+          if (!match || reservedSegments.includes(match[1])) continue;
+          joinedGroups.add(`https://www.facebook.com/groups/${match[1]}`);
+        }
+        noNewCount = joinedGroups.size === before ? noNewCount + 1 : 0;
+        await page.mouse.wheel(0, 1500);
+        await this.automationService.wait(1500 + Math.random() * 1000);
       }
-      console.log(`[Facebook] ✅ Đã lấy được ${joinedGroups.length} nhóm đã tham gia.`);
-      return joinedGroups;
+      console.log(`[Facebook] ✅ Đã lấy được ${joinedGroups.size} nhóm đã tham gia.`);
+      return [...joinedGroups];
     }
 
     if (keyword.includes('facebook.com')) return [keyword];
@@ -1248,8 +1276,8 @@ export class FacebookExecutor implements IPlatformExecutor {
       const taskMeta = task.metadata || {};
       console.log('[Facebook] Debug taskMeta:', JSON.stringify(taskMeta));
       
-      // Lấy danh sách nhóm từ Từng Gói (Task) do máy chủ chia, thay vì lấy toàn bộ từ Campaign
-      let groups = taskMeta.groupIds || [];
+      // Lấy danh sách nhóm từ Từng Gói (Task) do máy chủ chia, hoặc từ schedule
+      let groups = taskMeta.groupIds || taskMeta.schedule?.groupIds || campaignMeta.schedule?.groupIds || [];
       // Fallback cho các task cũ đã được tạo ra trước khi cập nhật logic băm nhỏ
       if (!groups || groups.length === 0) {
           if (taskMeta.groupId) {
@@ -1260,7 +1288,7 @@ export class FacebookExecutor implements IPlatformExecutor {
           }
       }
 
-      const postData = campaignMeta.postData || {};
+      const postData = campaignMeta.postData || taskMeta.postData || {};
       let content = postData.content || '';
       
       // Xử lý Spintax (Random theo dấu |)
@@ -1276,6 +1304,8 @@ export class FacebookExecutor implements IPlatformExecutor {
 
       let postsForCurrentPage = 0;
       const MAX_POSTS_PER_PAGE = 5;
+      let publishedCount = 0;
+      let skippedByCooldownCount = 0;
 
       while (groups.length > 0) {
           if (postsForCurrentPage >= MAX_POSTS_PER_PAGE) {
@@ -1310,9 +1340,32 @@ export class FacebookExecutor implements IPlatformExecutor {
           }
 
           let groupUrl = rawGroup;
+          if (this.store?.isGroupInCooldown(groupUrl, GROUP_POST_COOLDOWN_MS)) {
+              console.log(`[Facebook] Nhóm ${groupUrl} vừa được đăng trong ${GROUP_POST_COOLDOWN_HOURS} giờ qua. Bỏ qua để tránh spam...`);
+              groups.splice(currentIndex, 1);
+              skippedByCooldownCount++;
+              continue;
+          }
           console.log(`[Facebook] [${currentIndex + 1}/${groups.length}] Đang vào nhóm để đăng bài: ${groupUrl}`);
           await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
           await this.automationService.wait(4000);
+
+          const isCheckpoint = await page.evaluate(() => {
+             const textContent = document.body?.textContent?.toLowerCase() || '';
+             return window.location.href.includes('checkpoint') || 
+                    textContent.includes('confirm your identity') || 
+                    textContent.includes('certain actions have been restricted') ||
+                    textContent.includes('xác nhận danh tính');
+          });
+
+          if (isCheckpoint) {
+              console.error(`[Facebook] ❌ Tài khoản bị dính Checkpoint/Hạn chế tính năng khi vào nhóm ${groupUrl}! Dừng thực thi...`);
+              if (this.store) {
+                  // Gọi hàm update status về CHECKPOINT nếu có thể, hoặc throw Error để Worker bắt
+                  this.store.updateAccountStatus(accountId, 'CHECKPOINT');
+              }
+              throw new Error('CHECKPOINT');
+          }
 
           // --- KIỂM TRA & TỰ ĐỘNG THAM GIA NHÓM ---
           const membershipState = await page.evaluate(() => {
@@ -1410,6 +1463,58 @@ export class FacebookExecutor implements IPlatformExecutor {
 
           if (clickedBox) {
               await this.automationService.wait(2000);
+              
+              // Bật Đăng ẩn danh nếu được yêu cầu
+              if (postData.isAnonymous) {
+                  console.log('[Facebook] Yêu cầu Đăng Ẩn Danh, đang tìm công tắc...');
+                  let toggled = false;
+                  try {
+                      // Tìm switch Đăng ẩn danh bằng Playwright (chính xác hơn page.evaluate)
+                      const anonymousSwitch = page.locator('div[role="switch"]').first();
+                      if (await anonymousSwitch.isVisible({ timeout: 2000 }).catch(() => false)) {
+                          const isChecked = await anonymousSwitch.getAttribute('aria-checked');
+                          if (isChecked !== 'true') {
+                              await anonymousSwitch.click();
+                              console.log('[Facebook] Đã bật Đăng Ẩn Danh!');
+                              toggled = true;
+                          } else {
+                              console.log('[Facebook] Đăng Ẩn Danh đã được bật sẵn.');
+                          }
+                      } else {
+                          // Thử click vào chữ Đăng ẩn danh nếu không thấy thẻ switch
+                          const textBtn = page.locator('span, div').filter({ hasText: /^Đăng ẩn danh$|^Anonymous post$/i }).first();
+                          if (await textBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+                              await textBtn.click();
+                              console.log('[Facebook] Đã click vào chữ Đăng ẩn Danh!');
+                              toggled = true;
+                          }
+                      }
+                  } catch (err) {
+                      console.log('[Facebook] Lỗi khi bật Đăng ẩn danh:', (err as Error).message);
+                  }
+
+                  if (toggled) {
+                      console.log('[Facebook] Đã bật Đăng Ẩn Danh!');
+                      await this.automationService.wait(3000); // Chờ popup hướng dẫn đăng ẩn danh (nếu có) xuất hiện
+                      // Thử click nút "Tôi hiểu" hoặc "Đóng" của popup Đăng ẩn danh
+                      const btnGotIt = Array.from(document.querySelectorAll('div[role="button"], span')).find(el => {
+                          const text = (el.textContent || '').toLowerCase();
+                          return text.includes('tôi hiểu') || text.includes('i understand') || text.includes('got it');
+                      });
+                      await page.evaluate(() => {
+                          const buttons = Array.from(document.querySelectorAll('div[role="button"]'));
+                          for (const btn of buttons) {
+                              const text = (btn.textContent || '').toLowerCase();
+                              if (text.includes('tôi hiểu') || text.includes('i understand') || text.includes('got it')) {
+                                  (btn as HTMLElement).click();
+                                  break;
+                              }
+                          }
+                      });
+                      await this.automationService.wait(1000);
+                  }
+              }
+
               // Kiểm tra xem nhóm có yêu cầu phê duyệt không
               const requiresApproval = await page.evaluate(() => {
                  const texts = Array.from(document.querySelectorAll('span, div')).map(el => (el.textContent || '').toLowerCase());
@@ -1516,7 +1621,29 @@ export class FacebookExecutor implements IPlatformExecutor {
               console.log('[Facebook] Bấm Đăng thành công. Đang đợi xác nhận...');
               await editorLoc.waitFor({ state: 'hidden', timeout: 15000 }).catch(() => {});
               await this.automationService.wait(3000);
+
+              // Kiểm tra thông báo cấm đăng/hạn chế
+              const isRestricted = await page.evaluate(() => {
+                  const texts = Array.from(document.querySelectorAll('span, div, h2')).map(el => (el.textContent || '').toLowerCase());
+                  return texts.some(t => 
+                    t.includes('bạn bị hạn chế') || 
+                    t.includes('hiện tại đang cấm đăng') ||
+                    t.includes('không thể đăng') ||
+                    t.includes("can't post right now") ||
+                    t.includes('hành động của bạn bị hạn chế') ||
+                    t.includes('you are restricted') ||
+                    t.includes("you're restricted")
+                  );
+              });
+
+              if (isRestricted) {
+                  console.error('[Facebook] 🚨 Phát hiện thông báo cấm đăng/hạn chế từ Facebook để tránh spam!');
+                  return 'RESTRICTED';
+              }
+
               postsForCurrentPage++;
+              publishedCount++;
+              this.store?.recordGroupPost(groupUrl, GROUP_POST_COOLDOWN_MS);
               groups.splice(currentIndex, 1); // Xóa khỏi danh sách sau khi đăng thành công
               
               if (groups.length > 0) {
@@ -1529,6 +1656,11 @@ export class FacebookExecutor implements IPlatformExecutor {
               groups.splice(currentIndex, 1);
               continue;
           }
+      }
+
+      if (publishedCount === 0 && skippedByCooldownCount > 0) {
+          console.log('[Facebook] Tất cả nhóm đang trong thời gian nghỉ. Không có bài nào được đăng.');
+          return 'ALREADY_DONE';
       }
 
       return true;
