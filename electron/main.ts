@@ -830,7 +830,7 @@ function setupIpcHandlers(
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ['openFile', 'multiSelections'],
       filters: [
-        { name: 'Images', extensions: ['jpg', 'png', 'gif', 'jpeg', 'webp'] }
+        { name: 'Media (Ảnh & Video)', extensions: ['jpg', 'png', 'gif', 'jpeg', 'webp', 'mp4', 'mov', 'avi', 'mkv', 'webm'] }
       ]
     });
     return result;

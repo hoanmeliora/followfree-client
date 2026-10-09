@@ -79,7 +79,14 @@ export class PageFarmService {
             this.log('Mở trình duyệt Playwright với Profile bọc thép...');
             const { app } = require('electron');
             const path = require('path');
+            const fs = require('fs');
             const profilePath = path.join(app.getPath('userData'), 'profiles', accountId);
+
+            // Dọn dẹp lock file bị kẹt nếu lần trước browser crash
+            const lockFile = path.join(profilePath, 'SingletonLock');
+            const cookieFile = path.join(profilePath, 'SingletonCookie');
+            try { if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile); } catch (e) {}
+            try { if (fs.existsSync(cookieFile)) fs.unlinkSync(cookieFile); } catch (e) {}
 
             context = await chromium.launchPersistentContext(profilePath, {
                 headless: false, // Hiển thị theo yêu cầu của sếp
@@ -147,26 +154,30 @@ export class PageFarmService {
             await this.automation.wait(3000);
 
             // Kiểm tra xem có bị Facebook chặn vì đang ở tư cách Page không
-            const isBlockedByPageContext = await page.getByText(/Bạn hiện không xem được nội dung này|This content isn't available right now/i).isVisible();
-            if (isBlockedByPageContext) {
-                this.log('Phát hiện đang ở tư cách Page! Tạm lùi về trang chủ để tráo đổi sang Nick chính...');
+            let isBlockedByPageContext = await page.getByText(/Bạn hiện không xem được nội dung này|This content isn't available right now/i).isVisible();
+            let attempt = 1;
+
+            while (isBlockedByPageContext && attempt <= 5) {
+                this.log(`Phát hiện đang ở tư cách Page (Lần thử đổi ${attempt})! Tạm lùi về trang chủ để tráo đổi...`);
                 await page.goto('https://www.facebook.com/');
                 await this.automation.wait(3000);
                  
                 // Mở Avatar
-                const avatarMenu = page.locator('svg[aria-label="Trang cá nhân của bạn"], svg[aria-label="Your profile"]').last();
+                const avatarMenu = page.locator('div[aria-label="Tài khoản"], div[aria-label="Account"], svg[aria-label="Tài khoản"], svg[aria-label="Trang cá nhân của bạn"], svg[aria-label="Your profile"], svg[aria-label="Account"]').last();
                 await avatarMenu.click({ force: true }).catch(() => {});
                 await this.automation.wait(2000);
                  
-                // Bấm Xem tất cả
-                const seeAllBtn = page.locator('div[role="button"]').filter({ hasText: /Xem tất cả trang cá nhân|See all profiles/i });
+                // Bấm Xem tất cả (nếu có)
+                const seeAllBtn = page.locator('div[role="button"]').filter({ hasText: /Xem tất cả trang cá nhân|Xem tất cả trang|See all profiles/i });
+                let isSubMenuOpen = false;
                 if (await seeAllBtn.isVisible()) {
-                    await seeAllBtn.click();
+                    await seeAllBtn.click({ force: true });
                     await this.automation.wait(1500);
+                    isSubMenuOpen = true;
                 }
                  
-                const profileLocators = await page.locator('div[role="radio"], div[role="button"], div[role="menuitemradio"]')
-                   .filter({ hasNotText: /tạo trang|xem tất cả|cài đặt|đăng xuất|thông tin|đóng|trợ giúp|phản hồi|màn hình|tài khoản|tìm kiếm/i })
+                const profileLocators = await page.locator('div[role="radio"], div[role="button"], div[role="menuitemradio"], div[role="menuitem"], div[role="listitem"]')
+                   .filter({ hasNotText: /tạo trang|xem tất cả|cài đặt|đăng xuất|thông tin|đóng|trợ giúp|phản hồi|màn hình|tìm kiếm|quảng cáo/i })
                    .all();
                  
                 const validProfiles: any[] = [];
@@ -174,26 +185,40 @@ export class PageFarmService {
                     if (await loc.isVisible()) {
                         const text = await loc.textContent();
                         if (text && text.trim().length > 0 && text.trim().length < 50) {
-                            if (await loc.locator('image, img, svg').count() > 0) {
-                                const box = await loc.boundingBox();
-                                if (box && box.x > 300) validProfiles.push(loc);
+                            // Hạn chế kích thước để tránh click nhầm vào container khổng lồ hoặc overlay mờ
+                            const box = await loc.boundingBox();
+                            if (box && box.x > 300 && box.height >= 30 && box.height <= 120 && box.width >= 100 && box.width <= 500) {
+                                validProfiles.push(loc);
                             }
                         }
                     }
                 }
                  
-                if (validProfiles.length > 1) {
-                    // Khi đang ở tư cách Page, Nick chính LUÔN LUÔN nằm ở index 1 (ngay dưới nick hiện tại)
-                    this.log('Bấm chọn Nick chính để khôi phục thân phận gốc...');
-                    await validProfiles[1].click();
+                // Nếu mở SubMenu thì index 0 luôn là Profile hiện tại, ta nên click từ index 1 trở đi.
+                // Nếu không có SubMenu (chỉ có nút chuyển nhanh), nút đó nằm ở index 0.
+                const targetIndex = isSubMenuOpen ? attempt : attempt - 1;
+                 
+                if (validProfiles.length > targetIndex) {
+                    this.log(`Thử click profile ở vị trí thứ ${targetIndex} trong danh sách...`);
+                    await validProfiles[targetIndex].click({ force: true });
                     await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
                     await this.automation.wait(3000);
+                } else {
+                    this.log('Không còn profile nào để thử nữa.');
+                    break;
                 }
                  
                 // Vào lại link tạo Page
-                this.log('Đã về Nick chính, rón rén đi vào khu vực tạo Page lần nữa...');
+                this.log('Rón rén đi vào khu vực tạo Page lần nữa...');
                 await page.goto('https://www.facebook.com/pages/creation/', { waitUntil: 'domcontentloaded' });
                 await this.automation.wait(3000);
+                
+                isBlockedByPageContext = await page.getByText(/Bạn hiện không xem được nội dung này|This content isn't available right now/i).isVisible();
+                attempt++;
+            }
+
+            if (isBlockedByPageContext) {
+                throw new Error('Lỗi: Tài khoản bị kẹt ở tư cách Page, bot không tìm thấy Nick Chính để tạo Page.');
             }
 
             // 7. Gõ phím mổ cò

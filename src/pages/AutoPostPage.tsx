@@ -95,7 +95,7 @@ export default function AutoPostPage({ addLog, session }: Props) {
       const finalContent = [content1, content2, content3].filter(c => c.trim().length > 0).join(' | ');
       
       if (!finalContent.trim() && validImages.length === 0) {
-        return alert('Vui lòng nhập nội dung bài đăng hoặc chọn ít nhất 1 ảnh hợp lệ!');
+        return alert('Vui lòng nhập nội dung bài đăng hoặc chọn ít nhất 1 ảnh/video hợp lệ!');
       }
       metadata.postData = { content: finalContent, imageUrls: validImages, isAnonymous };
     }
@@ -231,7 +231,7 @@ export default function AutoPostPage({ addLog, session }: Props) {
               />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>🖼️ Chọn Ảnh đính kèm (Có thể chọn nhiều ảnh):</label>
+              <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>🖼️ Chọn Ảnh / Video đính kèm (Có thể chọn nhiều):</label>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                 <button 
                   type="button" 
