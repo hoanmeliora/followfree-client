@@ -102,7 +102,7 @@ export default function AutoPostPage({ addLog, session }: Props) {
 
     setIsLoading(true);
     try {
-      const res = await window.electronAPI?.createLocalCampaign({
+      const res = await window.electronAPI?.createLocalCampaign?.({
         platform: 'FACEBOOK',
         actionType: mode === 'POST' ? 'POST_GROUP' : 'SHARE_GROUP',
         targetUrl: mode === 'POST' ? 'AUTO_POST' : targetUrl,

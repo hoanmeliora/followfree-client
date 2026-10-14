@@ -23,10 +23,16 @@ export class AutomationService {
     let scrollDirection = 1
 
     while (Date.now() - startTime < durationMs) {
+      if (page.isClosed()) break
       if (Math.random() > 0.8) scrollDirection *= -1
       
       const step = scrollDirection * (Math.random() * 200 + 50)
-      await page.mouse.wheel(0, step)
+      try {
+        await page.mouse.wheel(0, step)
+      } catch (err: any) {
+        // Nếu trình duyệt hoặc trang bị đóng giữa chừng thì thoát êm đẹp
+        break
+      }
       
       await this.wait(400)
     }

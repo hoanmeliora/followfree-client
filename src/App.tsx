@@ -37,6 +37,8 @@ declare global {
       openBrowser: (id: string, platform: string, cookieStr: string) => Promise<any>
       
       createCampaign: (data: any) => Promise<any>
+      createLocalCampaign?: (data: any) => Promise<any>
+      getVersion?: () => Promise<string>
       getCampaigns: () => Promise<any>
       getSettings: () => Promise<any>
       updateSettings: (settings: any) => Promise<any>

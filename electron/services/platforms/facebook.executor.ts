@@ -395,9 +395,17 @@ export class FacebookExecutor implements IPlatformExecutor {
 
 
   private async shareToGroup(page: Page, task: any, accountId: string = 'default'): Promise<boolean | string> {
-    const groupIds = task.metadata?.groupIds || (task.metadata?.groupId ? [task.metadata.groupId] : []);
+    const campaignMeta = task.campaign?.metadata || {};
+    const taskMeta = task.metadata || {};
+    let groupIds: string[] = taskMeta.groupIds 
+      || taskMeta.groups 
+      || taskMeta.schedule?.groupIds 
+      || campaignMeta.groupIds 
+      || campaignMeta.groups 
+      || campaignMeta.schedule?.groupIds 
+      || (taskMeta.groupId ? [taskMeta.groupId] : []);
     
-    if (groupIds.length === 0) {
+    if (!groupIds || groupIds.length === 0) {
       console.error('[Facebook] Không tìm thấy Link Nhóm trong Task Metadata!');
       return false;
     }
@@ -551,9 +559,12 @@ export class FacebookExecutor implements IPlatformExecutor {
         }
 
         // 3. Đã là thành viên -> Mở bài viết gốc
-        console.log(`[Facebook] Đã tham gia nhóm. Chuyển sang bài viết: ${task.campaign.targetUrl}`);
-        await page.goto(task.campaign.targetUrl);
-        await this.automationService.wait(6000);
+        const postUrl = task.campaign?.targetUrl || task.targetUrl;
+        console.log(`[Facebook] Đã tham gia nhóm. Chuyển sang bài viết: ${postUrl}`);
+        if (postUrl) {
+          await page.goto(postUrl);
+          await this.automationService.wait(6000);
+        }
 
         // 4. Bấm nút Chia sẻ ở bài viết
         console.log('[Facebook] Cuộn thông minh để tải thanh Action Bar (chống Virtualization)...');
@@ -598,8 +609,62 @@ export class FacebookExecutor implements IPlatformExecutor {
             await this.automationService.wait(1000);
         }
 
-        console.log('[Facebook] Dùng thuật toán Action Bar + Đọc Tooltip siêu cấp...');
+        // Kiểm tra xem đây có phải là Reels / Video hoặc bài viết có nút Chia sẻ rõ ràng không
+        const isReelsOrVideo = page.url().includes('/reel') || page.url().includes('/watch') || page.url().includes('/videos/');
+        if (isReelsOrVideo) {
+          console.log('[Facebook] Phát hiện giao diện Reels/Video! Đang tìm nút Chia sẻ của Reels/Video...');
+        }
+
+        // Ưu tiên 1: Tìm trực tiếp nút Chia sẻ / Share của Reels hoặc Post thông thường
+        const directShareSelectors = [
+          'div[aria-label="Chia sẻ"][role="button"]',
+          'div[aria-label="Share"][role="button"]',
+          'div[aria-label="Chia sẻ ngay"][role="button"]',
+          'div[aria-label="Gửi"][role="button"]',
+          'div[role="button"]:has(span:text-is("Chia sẻ"))',
+          'div[role="button"]:has(span:text-is("Share"))',
+          // Reels vertical action bar buttons
+          'div[aria-label*="Chia sẻ"][role="button"]',
+          'div[aria-label*="Share"][role="button"]',
+        ];
+
         let clickedShare = false;
+
+        for (const selector of directShareSelectors) {
+          try {
+            const locators = await page.locator(selector).all();
+            for (const loc of locators) {
+              if (await loc.isVisible()) {
+                console.log(`[Facebook] Tìm thấy nút Chia sẻ trực tiếp qua selector: ${selector}`);
+                await loc.scrollIntoViewIfNeeded();
+                await this.automationService.wait(500);
+                await loc.click({ force: true });
+                await this.automationService.wait(1500);
+
+                const opened = await page.evaluate(() => {
+                  const docText = document.body.innerText.toLowerCase();
+                  return docText.includes('nhóm') || 
+                         docText.includes('group') ||
+                         docText.includes('chia sẻ ngay') || 
+                         docText.includes('share now') ||
+                         docText.includes('chia sẻ lên') ||
+                         docText.includes('share to');
+                });
+
+                if (opened) {
+                  console.log('[Facebook] Đã mở thành công menu Chia sẻ (Reels/Post)!');
+                  clickedShare = true;
+                  break;
+                }
+              }
+            }
+            if (clickedShare) break;
+          } catch (e) {}
+        }
+
+        // Ưu tiên 2 (Fallback cho Post thông thường): Dùng thuật toán Action Bar + Đọc Tooltip
+        if (!clickedShare) {
+          console.log('[Facebook] Nút chia sẻ trực tiếp chưa mở menu, chuyển sang thuật toán Action Bar + Tooltip...');
         
         for (let attempt = 0; attempt < 3; attempt++) {
             try {
@@ -723,6 +788,7 @@ export class FacebookExecutor implements IPlatformExecutor {
             }
             
             await this.automationService.wait(2000);
+          }
         }
 
         if (!clickedShare) {
@@ -736,10 +802,15 @@ export class FacebookExecutor implements IPlatformExecutor {
         console.log('[Facebook] Chọn Chia sẻ lên Nhóm...');
         let clickedGroupOption = false;
         const groupLocators = [
+            page.getByRole('dialog').getByText('Chia sẻ lên nhóm', { exact: false }),
+            page.getByRole('dialog').getByText('Share to a group', { exact: false }),
             page.getByRole('dialog').getByText('Nhóm', { exact: true }),
             page.getByRole('dialog').getByText('Group', { exact: true }),
-            page.getByRole('dialog').getByText('Chia sẻ lên nhóm', { exact: true }),
-            page.getByRole('dialog').getByText('Share to a group', { exact: true }),
+            page.locator('div[role="dialog"] div[role="button"]:has-text("Nhóm"), div[role="dialog"] div[role="button"]:has-text("Group")'),
+            page.locator('div[role="menuitem"]:has-text("Nhóm"), div[role="menuitem"]:has-text("Group")'),
+            page.locator('div[aria-label*="Chia sẻ lên nhóm"], div[aria-label*="Share to a group"]'),
+            page.getByText('Chia sẻ lên nhóm', { exact: false }).last(),
+            page.getByText('Share to a group', { exact: false }).last(),
             page.getByText('Nhóm', { exact: true }).last(),
             page.getByText('Group', { exact: true }).last()
         ];
