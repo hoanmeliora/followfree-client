@@ -271,14 +271,7 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
             )}
           </div>
 
-          {/* Points */}
-          <div className="points-card">
-            <div className="points-label">Số Xu tích lũy</div>
-            <div className="points-value">
-              {(session.user.points + status.totalPointsEarned).toLocaleString()}
-              <span className="points-unit">Xu</span>
-            </div>
-          </div>
+
 
           {/* Navigation */}
           <nav className="sidebar-nav">
@@ -327,12 +320,7 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
             >
               <span className="nav-icon">🤖</span> Tạo Tài Khoản
             </button>
-            <button
-              className={`nav-item ${activeTab === 'emails' ? 'active' : ''}`}
-              onClick={() => setActiveTab('emails')}
-            >
-              <span className="nav-icon">📧</span> Nhận Email
-            </button>
+
             <button
               className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
               onClick={() => setActiveTab('settings')}
@@ -367,6 +355,14 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
 
               {/* Stats Grid */}
               <div className="stats-grid">
+                <div className="stat-card" style={{ borderColor: 'var(--border-accent)', background: 'rgba(255, 215, 0, 0.03)' }}>
+                  <div className="stat-icon">💰</div>
+                  <div className="stat-value" style={{ color: 'var(--accent)' }}>
+                    {(session.user.points + status.totalPointsEarned).toLocaleString()}
+                    <span style={{ fontSize: '12px', marginLeft: '4px', color: 'var(--text-muted)' }}>Xu</span>
+                  </div>
+                  <div className="stat-label">Số Xu tích lũy</div>
+                </div>
                 <div className="stat-card">
                   <div className="stat-icon">✅</div>
                   <div className="stat-value">{status.tasksCompleted.toLocaleString()}</div>
@@ -524,55 +520,7 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
                 </label>
               </div>
 
-              <div style={{ 
-                background: 'rgba(255,255,255,0.02)', 
-                padding: '24px', 
-                borderRadius: '12px', 
-                border: '1px solid var(--border)',
-                backdropFilter: 'blur(10px)',
-                marginTop: '20px'
-              }}>
-                <h3 style={{ fontSize: '14px', marginBottom: '16px', fontWeight: 400, color: 'var(--accent)' }}>Tự động Tham gia Nhóm (Zero-Touch)</h3>
-                
-                <div style={{ padding: '12px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 400, marginBottom: '8px' }}>Từ khoá tìm kiếm nhóm (Cách nhau bằng dấu phẩy)</div>
-                  <input 
-                    type="text" 
-                    value={appSettings.autoJoinKeywords || ''} 
-                    onChange={(e) => saveSettingsField('autoJoinKeywords', e.target.value)}
-                    placeholder="VD: sinh viên, bất động sản, kiếm tiền online, marketing..."
-                    style={{ width: '100%', padding: '10px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', borderRadius: '6px', color: '#fff', fontSize: '13px' }}
-                  />
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px', fontWeight: 300 }}>
-                    Hệ thống sẽ dùng các từ khoá này để tự động tìm và xin vào nhóm trong lúc nuôi nick. Chỉ những nhóm <b>{'>10.000'} thành viên</b> mới được tham gia.
-                  </div>
-                </div>
-              </div>
 
-              <div style={{ 
-                background: 'rgba(255,255,255,0.02)', 
-                padding: '24px', 
-                borderRadius: '12px', 
-                border: '1px solid var(--border)',
-                backdropFilter: 'blur(10px)',
-                marginTop: '20px'
-              }}>
-                <h3 style={{ fontSize: '14px', marginBottom: '16px', fontWeight: 400, color: 'var(--accent)' }}>Tự động Tham gia Nhóm (Zero-Touch)</h3>
-                
-                <div style={{ padding: '12px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 400, marginBottom: '8px' }}>Từ khoá tìm kiếm nhóm (Cách nhau bằng dấu phẩy)</div>
-                  <input 
-                    type="text" 
-                    value={appSettings.autoJoinKeywords || ''} 
-                    onChange={(e) => saveSettingsField('autoJoinKeywords', e.target.value)}
-                    placeholder="VD: sinh viên, bất động sản, kiếm tiền online, marketing..."
-                    style={{ width: '100%', padding: '10px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', borderRadius: '6px', color: '#fff', fontSize: '13px' }}
-                  />
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px', fontWeight: 300 }}>
-                    Hệ thống sẽ dùng các từ khoá này để tự động tìm và xin vào nhóm trong lúc nuôi nick. Chỉ những nhóm <b>{'>10.000'} thành viên</b> mới được tham gia.
-                  </div>
-                </div>
-              </div>
 
               <div style={{ 
                 background: 'rgba(255,255,255,0.02)', 

@@ -97,6 +97,12 @@ export class WorkerService {
       () => this.currentTask !== null || this.nurturingService.isRunning(),
       (channel, data) => this.pushEvent(channel, data),
     )
+
+    // Liên kết Scanner vào FacebookExecutor để kích hoạt chế độ Luân phiên (Đăng bài 🔄 Săn khách)
+    const fbExecutor = this.executorRegistry.get('FACEBOOK') as FacebookExecutor;
+    if (fbExecutor && fbExecutor.setScannerService) {
+      fbExecutor.setScannerService(this.scanner);
+    }
     
     this.store.onAccountsChanged(() => {
       this.reportCapacityUpdate()

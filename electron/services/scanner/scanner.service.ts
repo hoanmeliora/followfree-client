@@ -250,6 +250,9 @@ export class ScannerService {
     let groupsScanned = 0
 
     try {
+      // 1. KIỂM TRA VÀ CHUYỂN NGAY VỀ TÀI KHOẢN CÁ NHÂN NẾU ĐANG KẸT Ở FANPAGE
+      await this.ensurePersonalProfile(page)
+
       // Biến đổi danh sách đầu vào (chứa cả URL và Từ khóa) thành danh sách URL nhóm thuần
       const targetGroupUrls = new Set<string>()
       for (const input of config.groups) {
@@ -352,6 +355,9 @@ export class ScannerService {
       .catch(() => false)
     if (isLoginScreen) throw new Error('SESSION_EXPIRED')
 
+    const groupName = (await page.title()).replace(/\s*\|\s*Facebook.*$/i, '').trim()
+    const newLeads: ScrapedLead[] = []
+
     // Facebook virtualizes the feed (old posts leave the DOM), so accumulate posts across scroll rounds
     const collected = new Map<string, RawPost>()
     const collect = async (): Promise<void> => {
@@ -375,15 +381,39 @@ export class ScannerService {
         this.log(`[Debug] Bài đầu tiên: URL=${first.postUrl}, Author=${first.authorName}, Chữ đầu: ${first.content.slice(0, 50).replace(/\n/g, ' ')}`)
       }
       this.log(`[Debug] Lượt này bóc được ${posts.length} bài trên màn hình, tổng đã gom: ${collected.size + posts.length}`)
+      // Quét và bắt lead ngay lập tức trong từng lượt cuộn (Real-time Stream)
       for (const post of posts) {
         const id = this.buildLeadId(post)
-        collected.set(id, post)
+        if (!collected.has(id)) {
+          collected.set(id, post)
+          
+          const matched = findMatchedKeywords(post.content, keywords)
+          if (matched.length > 0) {
+            const lead: ScrapedLead = {
+              id,
+              groupName,
+              authorName: post.authorName,
+              authorUrl: post.authorUrl || undefined,
+              content: post.content.slice(0, 2000),
+              postUrl: post.postUrl,
+              matchedKeywords: matched,
+              timestamp: Date.now(),
+              status: 'new',
+            }
+            if (this.store.addLead(lead)) {
+              newLeads.push(lead)
+              this.pushEvent('scanner:new_lead', lead)
+              this.log(`🎯 Khách mới: ${lead.authorName} (${matched.join(', ')})`)
+            }
+          }
+        }
       }
     }
 
     await collect()
     let stalledRounds = 0
     for (let round = 0; round < MAX_SCROLL_ROUNDS && collected.size < TARGET_POSTS_PER_GROUP; round++) {
+      if (!this.isRunning() || page.isClosed()) break
       const sizeBefore = collected.size
       const scrollAmount = randomBetween(1200, 2000)
       await page.evaluate((amount) => window.scrollBy(0, amount), scrollAmount)
@@ -391,39 +421,48 @@ export class ScannerService {
       await collect()
       stalledRounds = collected.size > sizeBefore ? 0 : stalledRounds + 1
       if (stalledRounds >= STALLED_ROUNDS_LIMIT + 2) {
-        this.log(`[Debug] Không có thêm bài mới sau 4 lần cuộn, thoát.`)
+        this.log(`[Debug] Không có thêm bài mới sau 4 lần cuộn, hoàn thành nhóm.`)
         break
       }
     }
-    const posts = Array.from(collected.values())
 
-    const groupName = (await page.title()).replace(/\s*\|\s*Facebook.*$/i, '').trim()
-    const newLeads: ScrapedLead[] = []
+    this.log(`📄 ${groupName || groupUrl}: đọc ${collected.size} bài, ${newLeads.length} bài khớp từ khóa`)
+    return { postsRead: collected.size, newLeads }
+  }
 
-    for (const post of posts) {
-      const matched = findMatchedKeywords(post.content, keywords)
-      if (matched.length === 0) continue
-
-      const lead: ScrapedLead = {
-        id: this.buildLeadId(post),
-        groupName,
-        authorName: post.authorName,
-        authorUrl: post.authorUrl || undefined,
-        content: post.content.slice(0, 2000),
-        postUrl: post.postUrl,
-        matchedKeywords: matched,
-        timestamp: Date.now(),
-        status: 'new',
-      }
-
-      if (this.store.addLead(lead)) {
-        newLeads.push(lead)
-        this.pushEvent('scanner:new_lead', lead)
-      }
+  /**
+   * Quét nhanh một nhóm trực tiếp từ tab Playwright đang mở của Worker (chế độ Luân phiên Đăng bài 🔄 Săn khách)
+   * Không mở lại browser mới, tận dụng luôn tab hiện tại.
+   */
+  async scanQuicklyWithPage(page: Page, maxGroups: number = 2): Promise<number> {
+    const config = this.store.getScannerConfig()
+    if (!config.isRunning || config.groups.length === 0 || config.keywords.length === 0) {
+      return 0
     }
 
-    this.log(`📄 ${groupName || groupUrl}: đọc ${posts.length} bài, ${newLeads.length} bài mới khớp từ khóa`)
-    return { postsRead: posts.length, newLeads }
+    const groups = config.groups.filter(g => g.includes('facebook.com/groups/'))
+    if (groups.length === 0) return 0
+
+    // Đảm bảo chuyển về Tài khoản cá nhân trước khi quét
+    await this.ensurePersonalProfile(page)
+
+    // Chọn ngẫu nhiên hoặc xoay vòng nhóm để quét
+    const selectedGroups = groups.slice(0, maxGroups)
+    let foundLeadsCount = 0
+
+    for (const groupUrl of selectedGroups) {
+      if (page.isClosed()) break
+      try {
+        this.log(`🔍 [Luân phiên] Tạm nghỉ đăng, đang quét săn khách tại: ${groupUrl}`)
+        const result = await this.scanGroup(page, groupUrl, config.keywords)
+        foundLeadsCount += result.newLeads.length
+      } catch (err) {
+        this.log(`⚠️ [Luân phiên] Lỗi quét nhanh nhóm ${groupUrl}: ${(err as Error).message}`)
+      }
+      await sleep(randomBetween(3000, 5000))
+    }
+
+    return foundLeadsCount
   }
 
   /** Sends ONE summary message per cycle (never one message per lead) to avoid Messenger spam flags. */
@@ -435,6 +474,9 @@ export class ScannerService {
       lines.push('', `${index + 1}. ${lead.authorName} (${lead.matchedKeywords.join(', ')})`, `"${snippet}"`, lead.postUrl)
     })
     if (leads.length > shown.length) lines.push('', `... và ${leads.length - shown.length} khách khác trong app`)
+
+    // ĐẢM BẢO Ở TƯ CÁCH CÁ NHÂN: Fanpage không có quyền gửi tin nhắn cho profile cá nhân
+    await this.ensurePersonalProfile(page)
 
     await page.goto(recipientUrl, { waitUntil: 'domcontentloaded', timeout: 45000 })
     const textbox = page.locator('div[role="textbox"][contenteditable="true"]').last()
@@ -496,36 +538,45 @@ export class ScannerService {
         let authorName = 'Thành viên nhóm'
         let authorUrl = ''
 
-        // Tìm link bài viết chuẩn xác
+        // Tìm link bài viết chuẩn xác (bắt buộc phải có ID bài viết hoặc permalink)
         let postLink = allLinks.find(a => 
             /\/groups\/[^/]+\/(posts|permalink)\/\d+/.test(a.href) && !a.href.includes('comment_id')
         )
         
         if (!postLink) {
-            postLink = allLinks.find(a => a.href.includes('multi_permalinks='))
+            postLink = allLinks.find(a => a.href.includes('multi_permalinks=') || a.href.includes('story_fbid='))
         }
 
         if (postLink) {
             const cleanUrlMatch = postLink.href.match(/(https:\/\/[^/]+\/groups\/[^/]+\/(?:posts|permalink)\/\d+)/)
-            postUrl = cleanUrlMatch ? cleanUrlMatch[1] : postLink.href.split('?')[0]
+            postUrl = cleanUrlMatch ? cleanUrlMatch[1] : postLink.href.split('&')[0].split('?')[0]
         } else {
-            // Fallback 1: Thử lấy link từ nút "Bình luận" (thường chứa đường dẫn gốc của bài)
-            const commentLink = allLinks.find(a => a.href.includes('comment_id') || a.innerText.toLowerCase().includes('bình luận') || a.innerText.toLowerCase().includes('comment'))
-            if (commentLink && /\/groups\/[^/]+\/(posts|permalink)\/\d+/.test(commentLink.href)) {
+            // Fallback 1: Thử lấy link từ nút "Bình luận" (chứa đường dẫn gốc của bài)
+            const commentLink = allLinks.find(a => (a.href.includes('comment_id') || a.innerText.toLowerCase().includes('bình luận') || a.innerText.toLowerCase().includes('comment')) && /\/groups\/[^/]+\/(posts|permalink)\/\d+/.test(a.href))
+            if (commentLink) {
                  const m = commentLink.href.match(/(https:\/\/[^/]+\/groups\/[^/]+\/(?:posts|permalink)\/\d+)/)
                  if (m) postUrl = m[1]
             }
             
-            // Fallback 2: Lấy link thời gian (thường có __cft__)
+            // Fallback 2: Link ở mốc thời gian bài viết (thường chứa link bài gốc)
             if (!postUrl) {
-                const timeLink = allLinks.find(a => a.href.includes('__cft__') && (a.innerText.includes(' ') || a.innerText.match(/\d/)) && !a.href.includes('/user/'))
-                if (timeLink) postUrl = timeLink.href.split('?')[0]
+                const timeLink = allLinks.find(a => 
+                    (a.href.includes('/posts/') || a.href.includes('/permalink/')) && 
+                    !a.href.includes('/user/') && 
+                    !a.href.includes('/hashtag/')
+                )
+                if (timeLink) {
+                    const m = timeLink.href.match(/(https:\/\/[^/]+\/groups\/[^/]+\/(?:posts|permalink)\/\d+)/)
+                    if (m) postUrl = m[1]
+                }
             }
-            
-            // Fallback 3: Lấy bừa link đầu tiên trỏ vào nhóm (tránh link user)
+
+            // Fallback 3: Kiểm tra các link có chứa query parameter ID bài viết
             if (!postUrl) {
-                const groupLink = allLinks.find(a => a.href.includes('/groups/') && !a.href.includes('/user/'))
-                if (groupLink) postUrl = groupLink.href.split('?')[0]
+                const storyLink = allLinks.find(a => a.href.includes('story_fbid=') || a.href.includes('fbid='))
+                if (storyLink) {
+                    postUrl = storyLink.href
+                }
             }
         }
 
@@ -555,6 +606,113 @@ export class ScannerService {
 
       return results
     })
+  }
+
+  /**
+   * Đảm bảo tài khoản đang ở tư cách Cá Nhân (Personal Profile) để quét nhóm và nhắn Messenger
+   */
+  private async ensurePersonalProfile(page: Page): Promise<boolean> {
+    try {
+      if (page.isClosed()) return false;
+      this.log('👤 Đang kiểm tra để đảm bảo ở tư cách Tài khoản cá nhân...');
+
+      // Thử vào link tạo Page. Nếu đang ở Fanpage, Facebook sẽ báo "Bạn hiện không xem được nội dung này" (This content isn't available)
+      await page.goto('https://www.facebook.com/pages/creation/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+      await sleep(2500);
+
+      const isPage = await page.getByText(/Bạn hiện không xem được nội dung này|This content isn't available right now/i).isVisible().catch(() => false);
+
+      if (!isPage) {
+        this.log('✅ Xác nhận: Đang ở sẵn Tài khoản cá nhân!');
+        return true;
+      }
+
+      this.log('🔄 Phát hiện đang kẹt ở thân phận Fanpage! Tiến hành tráo đổi về Nick cá nhân...');
+      await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded' }).catch(() => {});
+      await sleep(3000);
+
+      // Bấm vào Menu Avatar (góc trên cùng bên phải)
+      const avatarSelectors = [
+        'svg[aria-label="Trang cá nhân của bạn"]',
+        'svg[aria-label="Your profile"]',
+        'div[aria-label="Tài khoản"][role="button"]',
+        'div[aria-label="Account"][role="button"]',
+        'div[data-visualcompletion="ignore-dynamic"] image',
+        'image'
+      ];
+
+      let clicked = false;
+      for (const sel of avatarSelectors) {
+        const el = page.locator(sel).last();
+        if (await el.isVisible().catch(() => false)) {
+          const box = await el.boundingBox();
+          if (box) {
+            await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+            clicked = true;
+            break;
+          }
+        }
+      }
+
+      if (!clicked) {
+        this.log('⚠️ Không tìm thấy nút Menu Avatar để đổi nick');
+        return false;
+      }
+
+      await sleep(2500);
+
+      // Khi ở Page, mở Menu ra thì Nick cá nhân chính luôn nằm ở vị trí thứ 2 (dưới tên Page hiện tại)
+      const spans = await page.locator('div[role="dialog"] span[dir="auto"], div[role="menu"] span[dir="auto"]').all();
+      const valids: any[] = [];
+      for (const span of spans) {
+        if (await span.isVisible().catch(() => false)) {
+          const text = await span.textContent().catch(() => '');
+          if (text && text.trim().length > 0 && text.trim().length < 60) {
+            const t = text.toLowerCase();
+            const isMenu = t.includes('thông báo') || t.includes('cài đặt') || t.includes('đăng xuất') || t.includes('trợ giúp') || t.includes('xem tất cả') || t.includes('quảng cáo');
+            const isNotif = /\d+\s*(unseen|notification|update|tin nhắn|thông báo)/i.test(t);
+            if (!isMenu && !isNotif) {
+              valids.push(span);
+            }
+          }
+        }
+      }
+
+      // Lọc trùng
+      const uniqueValids: any[] = [];
+      const seen = new Set<string>();
+      for (const v of valids) {
+        const t = (await v.textContent().catch(() => ''))?.trim();
+        if (t && !seen.has(t)) {
+          seen.add(t);
+          uniqueValids.push(v);
+        }
+      }
+
+      if (uniqueValids.length > 1) {
+        const target = uniqueValids[1];
+        const targetName = await target.textContent().catch(() => 'Nick cá nhân');
+        this.log(`👉 Bấm chọn chuyển sang Nick cá nhân: "${targetName}"...`);
+        const box = await target.boundingBox();
+        if (box) {
+          await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        } else {
+          await target.click({ force: true }).catch(() => {});
+        }
+        await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 8000 }).catch(() => {});
+        await sleep(5000);
+        this.log(`✅ Đã chuyển thành công về Tài khoản cá nhân: "${targetName}"!`);
+        return true;
+      } else {
+        await page.keyboard.press('Escape');
+        this.log('⚠️ Không tìm thấy profile Nick cá nhân trong Menu');
+      }
+
+      return false;
+    } catch (err) {
+      console.warn('[Scanner] Lỗi khi đổi về tài khoản cá nhân:', err);
+      return false;
+    }
   }
 
   private emitStatus(): void {

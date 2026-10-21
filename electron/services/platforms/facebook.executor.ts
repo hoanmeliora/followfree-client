@@ -14,11 +14,20 @@ export class FacebookExecutor implements IPlatformExecutor {
   // Trạng thái cày theo lô (Batching) của các Page thuộc từng Account
   private accountPageState: Record<string, { mainAccountName: string | null, pageIndex: number, tasksDone: number, maxTasks: number, pageCount?: number }> = {};
 
+  private scannerService?: any;
+
   constructor(
     private readonly automationService: AutomationService,
     private readonly selfHealingService: SelfHealingService,
-    private readonly store?: StoreService
-  ) {}
+    private readonly store?: StoreService,
+    scannerService?: any
+  ) {
+    this.scannerService = scannerService;
+  }
+
+  setScannerService(scanner: any) {
+    this.scannerService = scanner;
+  }
 
   async performAction(page: Page, task: any, account?: any): Promise<boolean | string> {
     try {
@@ -316,6 +325,84 @@ export class FacebookExecutor implements IPlatformExecutor {
       }
     } catch (e) {
       console.log('[Facebook] Lỗi khi chuyển Page:', e);
+      return false;
+    }
+  }
+
+  /**
+   * Đảm bảo tài khoản đang ở tư cách Cá Nhân (Personal Profile) để nhắn tin Messenger và quét nhóm riêng tư.
+   * Nếu đang kẹt ở Fanpage thì tự động bấm đổi về Nick chính.
+   */
+  async ensurePersonalProfile(page: Page): Promise<boolean> {
+    try {
+      if (page.isClosed()) return false;
+      console.log('[Facebook] 👤 Đang kiểm tra để đảm bảo ở tư cách Tài khoản cá nhân...');
+
+      // Kiểm tra xem hiện tại có đang ở Page không
+      const isPage = await page.evaluate(() => {
+        const text = document.body.innerText || '';
+        return text.includes('Chuyển sang trang') || text.includes('Quản lý Trang') || text.includes('Bảng điều khiển chuyên nghiệp') || text.includes('Professional dashboard');
+      }).catch(() => false);
+
+      if (!isPage) {
+        console.log('[Facebook] ✅ Đang ở sẵn Tài khoản cá nhân.');
+        return true;
+      }
+
+      console.log('[Facebook] 🔄 Đang ở Fanpage! Tiến hành tráo đổi về Tài khoản cá nhân...');
+      await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded' });
+      await this.automationService.wait(2000);
+
+      // Bấm vào Menu Avatar
+      const accountBtnSelectors = [
+        'svg[aria-label="Trang cá nhân của bạn"]',
+        'svg[aria-label="Your profile"]',
+        'svg[aria-label="Tài khoản"]',
+        'svg[aria-label="Account"]',
+        'div[aria-label="Tài khoản"][role="button"]',
+        'div[aria-label="Account"][role="button"]',
+        'image'
+      ];
+
+      for (const sel of accountBtnSelectors) {
+        if (await this.automationService.simulateHumanClick(page, sel)) {
+          break;
+        }
+      }
+      await this.automationService.wait(2000);
+
+      // Quét các profile trong menu
+      const textSpans = await page.locator('div[role="dialog"] span[dir="auto"], div[role="menu"] span[dir="auto"]').all();
+      const valids: any[] = [];
+      for (const span of textSpans) {
+        if (await span.isVisible()) {
+          const text = await span.textContent();
+          if (text && text.trim().length > 0 && text.trim().length < 60) {
+            const t = text.toLowerCase();
+            const isMenuItem = t.includes('thông báo') || t.includes('cài đặt') || t.includes('đăng xuất') || t.includes('trợ giúp') || t.includes('xem tất cả') || t.includes('quảng cáo');
+            if (!isMenuItem) valids.push(span);
+          }
+        }
+      }
+
+      // Khi ở Page thì Tài khoản cá nhân chính thường nằm ở vị trí thứ 2 (index 1)
+      if (valids.length > 1) {
+        const targetBox = await valids[1].boundingBox();
+        if (targetBox) {
+          await page.mouse.click(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2);
+        } else {
+          await valids[1].click({ force: true });
+        }
+        await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 6000 }).catch(() => {});
+        await this.automationService.wait(3000);
+        console.log('[Facebook] ✅ Đã chuyển về Tài khoản cá nhân thành công!');
+        return true;
+      } else {
+        await page.keyboard.press('Escape');
+      }
+      return false;
+    } catch (err) {
+      console.warn('[Facebook] Lỗi khi đổi về tài khoản cá nhân:', err);
       return false;
     }
   }
@@ -1054,7 +1141,18 @@ export class FacebookExecutor implements IPlatformExecutor {
 
       sharesForCurrentPage++; // Tăng biến đếm bất kể thành công hay thất bại để bảo vệ nick
 
-      // 9. NHỊP NGHỈ VÀ NUÔI NICK TRƯỚC KHI SHARE NHÓM TIẾP THEO
+      // 9. CHẾ ĐỘ LUÂN PHIÊN: Cứ sau 3 bài share thì tranh thủ lướt quét săn khách (nếu tab Săn Khách đang bật)
+      if (this.scannerService && this.scannerService.scanQuicklyWithPage && (i + 1) % 3 === 0 && i < groupIds.length - 1) {
+          try {
+              console.log('[Facebook] 🔄 Kích hoạt chế độ LUÂN PHIÊN: Tạm dừng share, tranh thủ lướt nhóm săn khách...');
+              await this.scannerService.scanQuicklyWithPage(page, 2);
+              console.log('[Facebook] 🔄 Quét săn khách xong một vòng! Tiếp tục luồng chia sẻ bài viết...');
+          } catch (scanErr) {
+              console.warn('[Facebook] Lỗi trong lượt quét săn khách luân phiên:', scanErr);
+          }
+      }
+
+      // 10. NHỊP NGHỈ VÀ NUÔI NICK TRƯỚC KHI SHARE NHÓM TIẾP THEO
       if (i < groupIds.length - 1) {
           const delaySecs = 30 + Math.random() * 30; // 30 đến 60 giây
           console.log(`[Facebook] 🛑 Tạm nghỉ ${delaySecs.toFixed(0)} giây và lướt Newfeed để giả lập người thật trước khi share tiếp...`);
@@ -1717,6 +1815,17 @@ export class FacebookExecutor implements IPlatformExecutor {
               this.store?.recordGroupPost(groupUrl, GROUP_POST_COOLDOWN_MS);
               groups.splice(currentIndex, 1); // Xóa khỏi danh sách sau khi đăng thành công
               
+              // CHẾ ĐỘ LUÂN PHIÊN: Cứ sau 3 bài đăng thì tranh thủ lướt quét săn khách (nếu tab Săn Khách đang bật)
+              if (this.scannerService && this.scannerService.scanQuicklyWithPage && publishedCount % 3 === 0 && groups.length > 0) {
+                  try {
+                      console.log('[Facebook] 🔄 Kích hoạt chế độ LUÂN PHIÊN: Tạm dừng đăng bài, tranh thủ lướt nhóm săn khách...');
+                      await this.scannerService.scanQuicklyWithPage(page, 2);
+                      console.log('[Facebook] 🔄 Quét săn khách xong một vòng! Tiếp tục luồng đăng bài viết...');
+                  } catch (scanErr) {
+                      console.warn('[Facebook] Lỗi trong lượt quét săn khách luân phiên:', scanErr);
+                  }
+              }
+
               if (groups.length > 0) {
                  const randomDelay = Math.floor(Math.random() * 40000) + 20000; // 20s - 60s
                  console.log(`[Facebook] Đã đăng ${postsForCurrentPage}/${MAX_POSTS_PER_PAGE} bài của Page này. Nghỉ ngơi ${Math.round(randomDelay/1000)} giây trước khi tiếp tục...`);

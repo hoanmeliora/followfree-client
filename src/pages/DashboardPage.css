@@ -154,7 +154,7 @@
 
 /* Stats Grid */
 .stats-grid {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px;
 }
 .stat-card {
   padding: 24px 20px; background: rgba(255,255,255,0.02);
