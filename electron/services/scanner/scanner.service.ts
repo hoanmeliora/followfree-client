@@ -216,6 +216,7 @@ export class ScannerService {
   private timer: NodeJS.Timeout | null = null
   private cycleInProgress = false
   private accountRotation = 0
+  private quickScanGroupIndex = 0 // Xoay vòng nhóm khi quét luân phiên
   private currentContext: BrowserContext | null = null
 
   constructor(
@@ -417,11 +418,36 @@ export class ScannerService {
           let foundCount = 0
           for (let i = 0; i < 5; i++) { // Scroll 5 lần để kiếm cỡ 10-20 nhóm là đẹp
             const urls = await page.evaluate(() => {
-              const links = Array.from(document.querySelectorAll('a[href*="/groups/"]'));
-              return links
-                .map(a => a.getAttribute('href') || '')
-                .filter(href => href.includes('/groups/') && !href.includes('/search/') && !href.includes('/discover/') && !href.includes('/feed/'))
-                .map(href => href.split('?')[0])
+              const resultUrls: string[] = []
+              const groupPattern = /https:\/\/(?:www|m|web)\.facebook\.com\/groups\/([a-zA-Z0-9._-]+)/i
+
+              // 1. Tìm toàn bộ các thẻ <a>
+              const allLinks = Array.from(document.querySelectorAll('a[href]'))
+              for (const a of allLinks) {
+                const href = a.getAttribute('href') || ''
+                const match = href.match(groupPattern)
+                if (match) {
+                  const slug = match[1]
+                  if (slug && !['search', 'discover', 'feed', 'joins', 'create'].includes(slug.toLowerCase())) {
+                    resultUrls.push(`https://www.facebook.com/groups/${slug}`)
+                  }
+                }
+              }
+
+              // 2. Tìm trong role="link" hoặc các thẻ div chứa thuộc tính data
+              const clickableNodes = Array.from(document.querySelectorAll('[role="link"], [data-headline], div[aria-label]'))
+              for (const node of clickableNodes) {
+                const href = (node as any).href || node.getAttribute('href') || ''
+                const match = href.match(groupPattern)
+                if (match) {
+                  const slug = match[1]
+                  if (slug && !['search', 'discover', 'feed', 'joins', 'create'].includes(slug.toLowerCase())) {
+                    resultUrls.push(`https://www.facebook.com/groups/${slug}`)
+                  }
+                }
+              }
+
+              return Array.from(new Set(resultUrls))
             })
 
             for (const url of urls) {
@@ -430,8 +456,7 @@ export class ScannerService {
                 foundCount++
               }
             }
-            if (foundCount >= 10) break // Chỉ lấy top 10 nhóm tốt nhất cho mỗi từ khóa mỗi chu kỳ
-
+            if (foundCount >= 15) break // Lấy tối đa 15 nhóm tốt nhất mỗi từ khóa
             await page.evaluate(() => window.scrollBy(0, 1500))
             await sleep(2000)
           }
@@ -679,14 +704,23 @@ export class ScannerService {
     // Đảm bảo chuyển về Tài khoản cá nhân trước khi quét
     await this.ensurePersonalProfile(page)
 
-    // Chọn ngẫu nhiên hoặc xoay vòng nhóm để quét
-    const selectedGroups = groups.slice(0, maxGroups)
+    // Xoay vòng nhóm thông minh (Round-Robin) thay vì luôn lấy từ đầu
+    const selectedGroups: string[] = []
+    const totalGroups = groups.length
+    const numToPick = Math.min(maxGroups, totalGroups)
+
+    for (let i = 0; i < numToPick; i++) {
+      const idx = (this.quickScanGroupIndex + i) % totalGroups
+      selectedGroups.push(groups[idx])
+    }
+    this.quickScanGroupIndex = (this.quickScanGroupIndex + numToPick) % totalGroups
+
     let foundLeadsCount = 0
 
     for (const groupUrl of selectedGroups) {
       if (page.isClosed()) break
       try {
-        this.log(`🔍 [Luân phiên] Tạm nghỉ đăng, đang quét săn khách tại: ${groupUrl}`)
+        this.log(`🔍 [Luân phiên] Tạm nghỉ đăng, đang quét săn khách tại nhóm (${selectedGroups.indexOf(groupUrl) + 1}/${selectedGroups.length}): ${groupUrl}`)
         const result = await this.scanGroup(page, groupUrl, config)
         foundLeadsCount += result.newLeads.length
       } catch (err) {
