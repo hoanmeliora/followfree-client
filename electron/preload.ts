@@ -10,7 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   logout: () => ipcRenderer.invoke('auth:logout'),
   getSession: () => ipcRenderer.invoke('auth:getSession'),
   getMe: () => ipcRenderer.invoke('auth:getMe'),
-  changePassword: (oldPassword: string, newPassword: string) => 
+  changePassword: (oldPassword: string, newPassword: string) =>
     ipcRenderer.invoke('auth:changePassword', { oldPassword, newPassword }),
 
   // Worker
@@ -57,7 +57,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Scanner (Săn khách)
   scannerGetConfig: () => ipcRenderer.invoke('scanner:getConfig'),
-  scannerSaveConfig: (input: { groups: string[]; keywords: string[]; intervalMinutes: number; notifyRecipient?: string }) => ipcRenderer.invoke('scanner:saveConfig', input),
+  scannerSaveConfig: (input: {
+    groups: string[]
+    keywords: string[]
+    intentKeywords?: string[]
+    commentKeywords?: string[]
+    excludeKeywords?: string[]
+    autoFilterSpam?: boolean
+    scanComments?: boolean
+    maxPostAgeDays?: number
+    intervalMinutes: number
+    notifyRecipient?: string
+  }) => ipcRenderer.invoke('scanner:saveConfig', input),
   scannerStart: () => ipcRenderer.invoke('scanner:start'),
   scannerStop: () => ipcRenderer.invoke('scanner:stop'),
   scannerGetLeads: () => ipcRenderer.invoke('scanner:getLeads'),
@@ -68,6 +79,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // AutoPost
   getAutoPostConfig: () => ipcRenderer.invoke('getAutoPostConfig'),
   setAutoPostConfig: (config: any) => ipcRenderer.invoke('setAutoPostConfig', config),
+
+  // AI Automation
+  aiGetConfig: () => ipcRenderer.invoke('ai:getConfig'),
+  aiSaveConfig: (config: any) => ipcRenderer.invoke('ai:saveConfig', config),
+  aiGenerateLeadComment: (data: { postContent: string; authorName: string }) =>
+    ipcRenderer.invoke('ai:generateLeadComment', data),
 
   // Window controls
   minimizeWindow: () => ipcRenderer.send('window:minimize'),

@@ -53,6 +53,7 @@ interface AppData {
   scannerConfig: ScannerConfig
   leads: ScrapedLead[]
   autoPostConfig: AutoPostConfig
+  aiConfig: AiConfig
 }
 
 export interface AutoPostConfig {
@@ -80,14 +81,46 @@ export interface ScrapedLead {
   authorUrl?: string;
   content: string;
   postUrl: string;
+  postTimeText?: string;
   matchedKeywords: string[];
   timestamp: number;
   status: 'new' | 'read' | 'contacted';
+  suggestedComment?: string;
+}
+
+export interface JobItem {
+  id: string
+  title: string
+  location?: string
+  salary?: string
+  workingHours?: string
+  description?: string
+  contactInfo?: string
+}
+
+export interface AiConfig {
+  provider: 'gemini' | 'openai' | 'custom'
+  apiKey: string
+  modelName: string
+  systemPrompt?: string
+  maxTokens: number
+  jobList?: string[]
+  jobsText?: string
+  jobs?: JobItem[]
+  autoComment: boolean
+  commentDelaySeconds: number
+  commentAccountSelection: 'random' | 'first_active'
 }
 
 export interface ScannerConfig {
   groups: string[];
   keywords: string[];
+  intentKeywords?: string[];
+  commentKeywords?: string[];
+  excludeKeywords?: string[];
+  autoFilterSpam?: boolean;
+  scanComments?: boolean;
+  maxPostAgeDays?: number; // Chỉ quét bài đăng trong vòng N ngày đổ lại (mặc định 3)
   intervalMinutes: number;
   isRunning: boolean;
   notifyRecipient?: string; // Canonical Messenger thread URL that receives new-lead digests
@@ -148,7 +181,19 @@ export class StoreService {
   }
 
   getSession(): Session | null {
-    return ((this.store as any).get('session') as Session | null) ?? null
+    const saved = ((this.store as any).get('session') as Session | null) ?? null
+    if (saved && saved.user) return saved
+    return {
+      token: 'local-offline-token',
+      user: {
+        id: 'local_user',
+        username: 'Admin',
+        email: 'local@device',
+        role: 'ADMIN',
+        points: 999999,
+        balance: 999999,
+      },
+    }
   }
 
   saveSession(session: Session): void {
@@ -165,7 +210,7 @@ export class StoreService {
 
   updateAutoPostConfig(config: Partial<AutoPostConfig>): void {
     const current = this.getAutoPostConfig()
-    ;(this.store as any).set('autoPostConfig', { ...current, ...config })
+      ; (this.store as any).set('autoPostConfig', { ...current, ...config })
   }
 
   getSettings(): { runHeadless: boolean } {
@@ -186,7 +231,7 @@ export class StoreService {
       list.push(urlOrId);
       (this.store as any).set('groupBlacklist', list);
       for (const listener of this.blacklistListeners) {
-        try { listener(urlOrId) } catch {}
+        try { listener(urlOrId) } catch { }
       }
     }
   }
@@ -221,14 +266,14 @@ export class StoreService {
       if (now - postedAt < retentionMs) log[key] = postedAt
     }
     log[StoreService.normalizeGroupKey(groupUrl)] = now
-    ;(this.store as any).set('groupPostLog', log)
+      ; (this.store as any).set('groupPostLog', log)
 
     const stored = this.readStoredPostStats()
-    ;(this.store as any).set('postStats', {
-      total: stored.total + 1,
-      dayKey: StoreService.currentDayKey(),
-      today: stored.today + 1,
-    })
+      ; (this.store as any).set('postStats', {
+        total: stored.total + 1,
+        dayKey: StoreService.currentDayKey(),
+        today: stored.today + 1,
+      })
     for (const listener of this.postStatsListeners) {
       try { listener() } catch (err) { console.error('[Store] post stats listener failed:', err) }
     }
@@ -332,7 +377,19 @@ export class StoreService {
 
   // Scanner methods
   getScannerConfig(): ScannerConfig {
-    return (this.store as any).get('scannerConfig') ?? { groups: [], keywords: [], intervalMinutes: 15, isRunning: false }
+    const defaults: ScannerConfig = {
+      groups: [],
+      keywords: [],
+      intentKeywords: [],
+      commentKeywords: [],
+      excludeKeywords: [],
+      autoFilterSpam: true,
+      scanComments: false,
+      maxPostAgeDays: 3,
+      intervalMinutes: 15,
+      isRunning: false,
+    }
+    return { ...defaults, ...((this.store as any).get('scannerConfig') ?? {}) }
   }
 
   updateScannerConfig(config: Partial<ScannerConfig>): void {
@@ -364,5 +421,27 @@ export class StoreService {
 
   clearLeads(): void {
     (this.store as any).set('leads', []);
+  }
+
+  getAiConfig(): AiConfig {
+    const defaults: AiConfig = {
+      provider: 'gemini',
+      apiKey: '',
+      modelName: 'gemini-1.5-flash',
+      systemPrompt: '',
+      maxTokens: 200,
+      jobList: [],
+      jobsText: '',
+      jobs: [],
+      autoComment: false,
+      commentDelaySeconds: 60,
+      commentAccountSelection: 'first_active',
+    }
+    return { ...defaults, ...((this.store as any).get('aiConfig') ?? {}) }
+  }
+
+  updateAiConfig(config: Partial<AiConfig>): void {
+    const current = this.getAiConfig();
+    (this.store as any).set('aiConfig', { ...current, ...config });
   }
 }

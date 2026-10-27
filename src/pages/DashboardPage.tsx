@@ -4,6 +4,7 @@ import './DashboardPage.css'
 import AutoRegPage from './AutoRegPage'
 import AutoPostPage from './AutoPostPage'
 import { ScannerPage } from './ScannerPage'
+import { AiAssistantPage } from './AiAssistantPage'
 
 interface Props {
   session: {
@@ -44,7 +45,7 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '' })
   const [passwordError, setPasswordError] = useState('')
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'accounts' | 'campaigns' | 'deposits' | 'emails' | 'autoreg' | 'autopost' | 'scanner' | 'settings'>('dashboard')
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'accounts' | 'campaigns' | 'deposits' | 'emails' | 'autoreg' | 'autopost' | 'scanner' | 'ai' | 'settings'>('dashboard')
   const [appSettings, setAppSettings] = useState({ runHeadless: false, autoJoinKeywords: '' })
   const [appVersion, setAppVersion] = useState<string>('0.1.1')
   const [updateProgress, setUpdateProgress] = useState<{ percent: number; bytesPerSecond: number; total: number; transferred: number } | null>(null)
@@ -288,18 +289,6 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
               <span className="nav-icon">👤</span> Tài khoản ({status.accountCount})
             </button>
             <button
-              className={`nav-item ${activeTab === 'campaigns' ? 'active' : ''}`}
-              onClick={() => setActiveTab('campaigns')}
-            >
-              <span className="nav-icon">🚀</span> Mua Tương Tác
-            </button>
-            <button
-              className={`nav-item ${activeTab === 'deposits' ? 'active' : ''}`}
-              onClick={() => setActiveTab('deposits')}
-            >
-              <span className="nav-icon">💳</span> Nạp Xu
-            </button>
-            <button
               className={`nav-item ${activeTab === 'autopost' ? 'active' : ''}`}
               onClick={() => setActiveTab('autopost')}
               style={{ background: activeTab === 'autopost' ? '' : 'rgba(76, 175, 80, 0.1)', color: activeTab === 'autopost' ? '' : '#4CAF50' }}
@@ -312,6 +301,13 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
               style={{ background: activeTab === 'scanner' ? '' : 'rgba(33, 150, 243, 0.1)', color: activeTab === 'scanner' ? '' : '#2196F3' }}
             >
               <span className="nav-icon">🎯</span> Săn Khách
+            </button>
+            <button
+              className={`nav-item ${activeTab === 'ai' ? 'active' : ''}`}
+              onClick={() => setActiveTab('ai')}
+              style={{ background: activeTab === 'ai' ? '' : 'rgba(147, 51, 234, 0.1)', color: activeTab === 'ai' ? '' : '#9333ea' }}
+            >
+              <span className="nav-icon">🧠</span> Trợ Lý AI
             </button>
             <button
               className={`nav-item ${activeTab === 'autoreg' ? 'active' : ''}`}
@@ -488,6 +484,8 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
           )}
 
           {activeTab === 'scanner' && <ScannerPage />}
+
+          {activeTab === 'ai' && <AiAssistantPage />}
 
           {activeTab === 'settings' && (
             <div className="accounts-section">

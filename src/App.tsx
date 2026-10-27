@@ -24,7 +24,7 @@ declare global {
       getSession: () => Promise<Session | null>
       getMe: () => Promise<any>
       changePassword: (oldP: string, newP: string) => Promise<any>
-      
+
       startWorker: () => Promise<any>
       stopWorker: () => Promise<any>
       getWorkerStatus: () => Promise<any>
@@ -35,7 +35,7 @@ declare global {
       loginGmailOAuth: () => Promise<any>
       addGmailByCookie: (cookieStr: string) => Promise<any>
       openBrowser: (id: string, platform: string, cookieStr: string) => Promise<any>
-      
+
       createCampaign: (data: any) => Promise<any>
       createLocalCampaign?: (data: any) => Promise<any>
       getVersion?: () => Promise<string>
@@ -44,30 +44,57 @@ declare global {
       updateSettings: (settings: any) => Promise<any>
       cancelCampaign: (id: string) => Promise<any>
       previewTarget: (url: string, actionType: string) => Promise<any>
-      
+
       getDepositInfo: () => Promise<any>
       mockDeposit: (amount: number, syntax: string) => Promise<any>
-      
+
       getEmailConfig: () => Promise<any>
       connectEmail: (email: string, password: string) => Promise<any>
       disconnectEmail: () => Promise<any>
-      
+
       autoRegStart: (config: any) => Promise<any>
       autoRegStop: () => Promise<any>
       onAutoRegLog: (cb: (e: any, msg: string) => void) => () => void
 
-      scannerGetConfig: () => Promise<{ groups: string[]; keywords: string[]; intervalMinutes: number; isRunning: boolean; notifyRecipient?: string }>
-      scannerSaveConfig: (input: { groups: string[]; keywords: string[]; intervalMinutes: number; notifyRecipient?: string }) => Promise<{ success: boolean; error?: string }>
+      scannerGetConfig: () => Promise<{
+        groups: string[]
+        keywords: string[]
+        intentKeywords?: string[]
+        commentKeywords?: string[]
+        excludeKeywords?: string[]
+        autoFilterSpam?: boolean
+        scanComments?: boolean
+        maxPostAgeDays?: number
+        intervalMinutes: number
+        isRunning: boolean
+        notifyRecipient?: string
+      }>
+      scannerSaveConfig: (input: {
+        groups: string[]
+        keywords: string[]
+        intentKeywords?: string[]
+        commentKeywords?: string[]
+        excludeKeywords?: string[]
+        autoFilterSpam?: boolean
+        scanComments?: boolean
+        maxPostAgeDays?: number
+        intervalMinutes: number
+        notifyRecipient?: string
+      }) => Promise<{ success: boolean; error?: string }>
       scannerStart: () => Promise<{ success: boolean; error?: string }>
       scannerStop: () => Promise<{ success: boolean }>
       scannerGetLeads: () => Promise<Array<{
         id: string; groupName?: string; authorName: string; authorUrl?: string; content: string
-        postUrl: string; matchedKeywords: string[]; timestamp: number; status: 'new' | 'read' | 'contacted'
+        postUrl: string; postTimeText?: string; matchedKeywords: string[]; timestamp: number; status: 'new' | 'read' | 'contacted'
       }>>
       scannerUpdateLeadStatus: (id: string, status: 'new' | 'read' | 'contacted') => Promise<{ success: boolean }>
       scannerClearLeads: () => Promise<{ success: boolean }>
       scannerOpenExternal: (url: string) => Promise<{ success: boolean }>
       onScannerEvent: (channel: 'scanner:new_lead' | 'scanner:status' | 'scanner:log', cb: (data: any) => void) => () => void
+
+      aiGetConfig: () => Promise<any>
+      aiSaveConfig: (config: any) => Promise<{ success: boolean; error?: string }>
+      aiGenerateLeadComment: (data: { postContent: string; authorName: string }) => Promise<{ success: boolean; comment?: string; error?: string }>
 
       minimizeWindow: () => void
       maximizeWindow: () => void
@@ -80,21 +107,35 @@ declare global {
   }
 }
 
+const LOCAL_SESSION: Session = {
+  token: 'local-offline-token',
+  user: {
+    id: 'local_user',
+    username: 'Admin',
+    email: 'local@device',
+    role: 'ADMIN',
+    points: 999999,
+    balance: 999999,
+  },
+}
+
 function App() {
-  const [session, setSession] = useState<Session | null>(null)
+  const [session, setSession] = useState<Session>(LOCAL_SESSION)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Kiểm tra session đã lưu sẵn
+    // Tự động nạp session đã lưu hoặc dùng phiên làm việc local mặc định
     window.electronAPI?.getSession().then((saved) => {
-      setSession(saved)
+      setSession(saved && saved.user ? saved : LOCAL_SESSION)
+      setLoading(false)
+    }).catch(() => {
+      setSession(LOCAL_SESSION)
       setLoading(false)
     })
 
     const handleAuthExpired = async () => {
-      alert('Phiên đăng nhập đã hết hạn (hoặc máy chủ yêu cầu đăng nhập lại). Vui lòng đăng nhập lại!')
-      await window.electronAPI?.logout()
-      setSession(null)
+      // Chế độ công cụ cá nhân offline: bỏ qua sự kiện hết hạn token
+      console.warn('Bỏ qua sự kiện auth:expired trong chế độ tool cá nhân offline')
     }
 
     window.electronAPI?.on('auth:expired', handleAuthExpired)
@@ -107,7 +148,7 @@ function App() {
 
   const handleLogout = async () => {
     await window.electronAPI?.logout()
-    setSession(null)
+    setSession(LOCAL_SESSION)
   }
 
   if (loading) {
@@ -119,10 +160,7 @@ function App() {
     )
   }
 
-  if (!session) {
-    return <LoginPage onLogin={handleLogin} />
-  }
-
+  // Luôn mở trực tiếp Dashboard, ẩn hoàn toàn màn hình đăng nhập/đăng ký
   return <DashboardPage session={session} onLogout={handleLogout} onSessionUpdate={handleLogin} />
 }
 

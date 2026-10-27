@@ -31,6 +31,7 @@ import { DepositService } from './services/deposit.service'
 import { EmailService } from './services/email.service'
 import { AutoRegService } from './services/auto-reg.service'
 import { PageFarmService } from './services/page-farm.service'
+import { AiService } from './services/ai.service'
 import axios from 'axios'
 
 const isDev = process.env.NODE_ENV === 'development'
@@ -834,6 +835,18 @@ function setupIpcHandlers(
       ]
     });
     return result;
+  })
+
+  // AI Automation IPCs
+  const aiService = new AiService()
+  ipcMain.handle('ai:getConfig', async () => storeService.getAiConfig())
+  ipcMain.handle('ai:saveConfig', async (_e, config) => {
+    storeService.updateAiConfig(config)
+    return { success: true }
+  })
+  ipcMain.handle('ai:generateLeadComment', async (_e, { postContent, authorName }) => {
+    const aiConfig = storeService.getAiConfig()
+    return await aiService.generateLeadComment(postContent, authorName, aiConfig)
   })
 
   // Window controls

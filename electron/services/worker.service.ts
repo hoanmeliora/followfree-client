@@ -478,12 +478,16 @@ export class WorkerService {
            return undefined;
        })(),
        args: [
-         '--disable-gpu',
+         ...(process.platform === 'darwin' ? [] : ['--disable-gpu']),
          '--no-sandbox',
          '--disable-setuid-sandbox',
          '--disable-dev-shm-usage',
          '--disable-web-security',
-         '--disk-cache-size=15000000' // Giới hạn Cache 15MB để chống phình to ổ cứng
+         '--disk-cache-size=20000000',
+         '--js-flags=--max-old-space-size=512',
+         '--renderer-process-limit=2',
+         '--disable-features=PreloadMediaEngagementData,MediaEngagementBypassAutoplayPolicies',
+         '--autoplay-policy=user-gesture-required'
        ]
     }
 
