@@ -47,7 +47,7 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
   const [passwordError, setPasswordError] = useState('')
   const [activeTab, setActiveTab] = useState<'dashboard' | 'accounts' | 'campaigns' | 'deposits' | 'emails' | 'autoreg' | 'autopost' | 'scanner' | 'ai' | 'settings'>('dashboard')
   const [appSettings, setAppSettings] = useState({ runHeadless: false, autoJoinKeywords: '' })
-  const [appVersion, setAppVersion] = useState<string>('0.1.1')
+  const [appVersion, setAppVersion] = useState<string>('0.2.2')
   const [updateProgress, setUpdateProgress] = useState<{ percent: number; bytesPerSecond: number; total: number; transferred: number } | null>(null)
   const [updateStatus, setUpdateStatus] = useState<string>('')
   const [updateReady, setUpdateReady] = useState(false)

@@ -30,24 +30,24 @@ export class ImapService {
       try {
         log(`[IMAP] Đang kết nối tới Gmail ${this.config.imap.user}...`);
         connection = await Imap.connect(this.config);
-        
+
         // Thử mở Tất cả thư (All Mail) để tìm cả trong Spam, nếu lỗi thì fallback về INBOX
         try {
-            await connection.openBox('[Gmail]/All Mail');
-        } catch(e) {
-            try {
-                await connection.openBox('[Gmail]/Tất cả thư');
-            } catch (e2) {
-                await connection.openBox('INBOX');
-            }
+          await connection.openBox('[Gmail]/All Mail');
+        } catch (e) {
+          try {
+            await connection.openBox('[Gmail]/Tất cả thư');
+          } catch (e2) {
+            await connection.openBox('INBOX');
+          }
         }
-        
+
         log(`[IMAP] Kết nối thành công! Đang chờ thư từ FB gửi tới ${targetEmail}...`);
 
         const searchCriteria = [
           ['FROM', 'registration@facebookmail.com']
         ];
-        
+
         const fetchOptions = {
           bodies: ['HEADER.FIELDS (FROM TO SUBJECT DATE)', 'TEXT'],
           markSeen: true
@@ -64,15 +64,15 @@ export class ImapService {
 
           try {
             const messages = await connection.search(searchCriteria, fetchOptions);
-            
+
             for (const msg of messages) {
               const headerPart = msg.parts.find((p: any) => p.which === 'HEADER.FIELDS (FROM TO SUBJECT DATE)');
               const textPart = msg.parts.find((p: any) => p.which === 'TEXT');
-              
+
               if (!headerPart || !textPart) continue;
 
               const subject = headerPart.body.subject ? headerPart.body.subject[0] : '';
-              
+
               // Tách mã OTP (5 đến 8 chữ số) từ tiêu đề "FB-123456 is your Facebook confirmation code"
               const match = subject.match(/(?:FB-)?(\d{5,8})/);
               if (match) {
