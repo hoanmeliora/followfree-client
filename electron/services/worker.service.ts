@@ -484,8 +484,8 @@ export class WorkerService {
          '--disable-dev-shm-usage',
          '--disable-web-security',
          '--disk-cache-size=20000000',
-         '--js-flags=--max-old-space-size=512',
-         '--renderer-process-limit=2',
+         '--js-flags=--max-old-space-size=2048',
+         '--renderer-process-limit=4',
          '--disable-features=PreloadMediaEngagementData,MediaEngagementBypassAutoplayPolicies',
          '--autoplay-policy=user-gesture-required'
        ]

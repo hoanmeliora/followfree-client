@@ -531,8 +531,17 @@ export class ScannerService {
   }
 
   private async scanGroup(page: Page, groupUrl: string, config: ScannerConfig): Promise<{ postsRead: number; newLeads: ScrapedLead[] }> {
-    await page.goto(`${groupUrl}?sorting_setting=CHRONOLOGICAL`, { waitUntil: 'domcontentloaded', timeout: 45000 })
+    if (page.isClosed()) throw new Error('PAGE_CLOSED')
+    await page.goto(`${groupUrl}?sorting_setting=CHRONOLOGICAL`, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(async (err) => {
+      if (err.message?.includes('crash') || err.message?.includes('Target closed') || page.isClosed()) {
+        throw new Error('PAGE_CRASHED')
+      }
+      // Thử reload lại một lần nếu gặp lỗi tải trang
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
+    })
     await sleep(randomBetween(3000, 5000))
+
+    if (page.isClosed()) throw new Error('PAGE_CRASHED')
 
     const isLoginScreen = await page
       .evaluate(() => !!document.querySelector('input[name="email"], input[name="pass"]') || /login|checkpoint/i.test(location.href))
