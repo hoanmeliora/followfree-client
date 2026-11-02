@@ -3,6 +3,7 @@ import './DashboardPage.css'
 
 import AutoRegPage from './AutoRegPage'
 import AutoPostPage from './AutoPostPage'
+import ThreadsPage from './ThreadsPage'
 import { ScannerPage } from './ScannerPage'
 import { AiAssistantPage } from './AiAssistantPage'
 
@@ -45,9 +46,9 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '' })
   const [passwordError, setPasswordError] = useState('')
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'accounts' | 'campaigns' | 'deposits' | 'emails' | 'autoreg' | 'autopost' | 'scanner' | 'ai' | 'settings'>('dashboard')
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'accounts' | 'campaigns' | 'deposits' | 'emails' | 'autoreg' | 'autopost' | 'threads' | 'scanner' | 'ai' | 'settings'>('dashboard')
   const [appSettings, setAppSettings] = useState({ runHeadless: false, autoJoinKeywords: '' })
-  const [appVersion, setAppVersion] = useState<string>('0.2.2')
+  const [appVersion, setAppVersion] = useState<string>('0.2.3')
   const [updateProgress, setUpdateProgress] = useState<{ percent: number; bytesPerSecond: number; total: number; transferred: number } | null>(null)
   const [updateStatus, setUpdateStatus] = useState<string>('')
   const [updateReady, setUpdateReady] = useState(false)
@@ -296,6 +297,13 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
               <span className="nav-icon">🔄</span> Auto Post Nhóm
             </button>
             <button
+              className={`nav-item ${activeTab === 'threads' ? 'active' : ''}`}
+              onClick={() => setActiveTab('threads')}
+              style={{ background: activeTab === 'threads' ? '' : 'rgba(255, 255, 255, 0.08)', color: activeTab === 'threads' ? '' : '#ffffff' }}
+            >
+              <span className="nav-icon">🧵</span> Threads Tuyển Dụng
+            </button>
+            <button
               className={`nav-item ${activeTab === 'scanner' ? 'active' : ''}`}
               onClick={() => setActiveTab('scanner')}
               style={{ background: activeTab === 'scanner' ? '' : 'rgba(33, 150, 243, 0.1)', color: activeTab === 'scanner' ? '' : '#2196F3' }}
@@ -483,6 +491,10 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
             <AutoPostPage addLog={addLog} session={session} />
           )}
 
+          {activeTab === 'threads' && (
+            <ThreadsPage addLog={addLog} session={session} />
+          )}
+
           {activeTab === 'scanner' && <ScannerPage />}
 
           {activeTab === 'ai' && <AiAssistantPage />}
@@ -639,6 +651,10 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
   )
 }
 
+const PLATFORM_COLORS: Record<string, string> = {
+  FACEBOOK: '#1877f2', TIKTOK: '#ff0050', THREADS: '#111111', GMAIL: '#ea4335', GMAIL_OAUTH: '#ea4335'
+}
+
 function AccountsTab({ accountCount }: { accountCount: number }) {
   const [accounts, setAccounts] = useState<any[]>([])
   const [showAddForm, setShowAddForm] = useState(false)
@@ -712,9 +728,7 @@ function AccountsTab({ accountCount }: { accountCount: number }) {
     loadAccounts()
   }
 
-  const platformColors: Record<string, string> = {
-    FACEBOOK: '#1877f2', TIKTOK: '#ff0050', GMAIL: '#ea4335', GMAIL_OAUTH: '#ea4335'
-  }
+  const platformColors = PLATFORM_COLORS
 
   const filteredAccounts = filterPlatform === 'ALL' 
     ? accounts 
@@ -920,6 +934,10 @@ function CampaignsTab({ userPoints }: { userPoints: number }) {
   const [isPreviewing, setIsPreviewing] = useState(false)
   const [hasChecked, setHasChecked] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
+  const [recruitKeywords, setRecruitKeywords] = useState('quan tâm, ib, inbox, xin jd, apply, cv, còn tuyển')
+  const [recruitReplyTemplate, setRecruitReplyTemplate] = useState('{Dạ chào bạn|Chào bạn|Hi bạn}, bên mình vừa gửi JD chi tiết {qua tin nhắn chờ|vào inbox} cho bạn rồi ạ. Bạn kiểm tra giúp mình nhé!')
+  const [recruitReplyTemplate2, setRecruitReplyTemplate2] = useState('')
+  const [recruitDmTemplate, setRecruitDmTemplate] = useState('Chào bạn, cảm ơn bạn đã quan tâm vị trí tuyển dụng. Chi tiết công việc: ...')
 
   const loadCampaigns = useCallback(() => {
     window.electronAPI?.getCampaigns().then((res: any) => {
@@ -941,7 +959,7 @@ function CampaignsTab({ userPoints }: { userPoints: number }) {
   useEffect(() => { loadCampaigns() }, [loadCampaigns])
 
   const costTable: Record<string, number> = {
-    LIKE: 2, LOVE: 2, HAHA: 2, WOW: 2, SAD: 2, ANGRY: 2, FOLLOW: 4, VIEW_LIVE: 2, VIEW_VIDEO: 2, SHARE: 6, COMMENT: 4,
+    LIKE: 2, LOVE: 2, HAHA: 2, WOW: 2, SAD: 2, ANGRY: 2, FOLLOW: 4, VIEW_LIVE: 2, VIEW_VIDEO: 2, SHARE: 6, COMMENT: 4, REPOST: 4, RECRUIT_AUTO_REPLY: 6,
   }
   const totalCost = (costTable[actionType] || 2) * targetCount
 
@@ -1014,7 +1032,17 @@ function CampaignsTab({ userPoints }: { userPoints: number }) {
     setIsCreating(true)
 
     let metadata = undefined;
-    if (actionType === 'SHARE_GROUP') {
+    if (actionType === 'RECRUIT_AUTO_REPLY') {
+      const keywords = recruitKeywords.split(',').map(k => k.trim()).filter(Boolean);
+      metadata = {
+        keywords,
+        replyTemplate: recruitReplyTemplate,
+        replyTemplate2: recruitReplyTemplate2,
+        replyTemplates: [recruitReplyTemplate, recruitReplyTemplate2].filter(t => t && t.trim().length > 0),
+        dmTemplate: recruitDmTemplate,
+        realActionType: 'RECRUIT_AUTO_REPLY'
+      };
+    } else if (actionType === 'SHARE_GROUP') {
       const invalidPaths = ['/feed/', '/discover/', '/joins/', '/search/', '/create/'];
       const groups = groupLinksInput.split('\n').map(l => l.trim()).filter(l => {
         const low = l.toLowerCase();
@@ -1028,8 +1056,19 @@ function CampaignsTab({ userPoints }: { userPoints: number }) {
       metadata = { groups };
     }
 
+    let serverActionType = actionType
+    if (actionType === 'RECRUIT_AUTO_REPLY') {
+      serverActionType = 'COMMENT'
+    } else if (actionType === 'REPOST') {
+      serverActionType = 'SHARE'
+      metadata = { ...metadata, realActionType: 'REPOST' }
+    } else if (['LOVE', 'HAHA', 'WOW', 'SAD', 'ANGRY'].includes(actionType)) {
+      serverActionType = 'LIKE'
+      metadata = { ...metadata, realActionType: actionType }
+    }
+
     const res = await window.electronAPI?.createCampaign({
-      platform, actionType, targetUrl, targetCount: Number(targetCount), startCount: startCount || undefined, metadata
+      platform, actionType: serverActionType, targetUrl, targetCount: Number(targetCount), startCount: startCount || undefined, metadata
     })
 
     if (!res.success) {
@@ -1062,6 +1101,7 @@ function CampaignsTab({ userPoints }: { userPoints: number }) {
             <label>Nền tảng</label>
             <select value={platform} onChange={(e) => setPlatform(e.target.value)}>
               <option value="FACEBOOK">Facebook</option>
+              <option value="THREADS">Threads</option>
               <option value="TIKTOK">TikTok</option>
               <option value="YOUTUBE">YouTube</option>
             </select>
@@ -1079,6 +1119,12 @@ function CampaignsTab({ userPoints }: { userPoints: number }) {
                   <option value="ANGRY">Thả Phẫn nộ (2 Xu)</option>
                 </>
               )}
+              {platform === 'THREADS' && (
+                <>
+                  <option value="RECRUIT_AUTO_REPLY">🎯 Tuyển dụng: Quét từ khoá & Auto Reply + DM (6 Xu)</option>
+                  <option value="REPOST">Repost / Đăng lại (4 Xu)</option>
+                </>
+              )}
               <option value="FOLLOW">Follow (4 Xu/lượt)</option>
               <option value="SHARE">Share (6 Xu/lượt)</option>
               <option value="SHARE_GROUP">Share vào Nhóm (8 Xu/lượt)</option>
@@ -1092,7 +1138,7 @@ function CampaignsTab({ userPoints }: { userPoints: number }) {
               value={targetUrl} 
               onChange={e => setTargetUrl(e.target.value)} 
               onBlur={() => handleCheckUrl()} 
-              placeholder="https://facebook.com/..." 
+              placeholder={platform === 'THREADS' ? 'https://threads.net/@user hoặc https://threads.net/t/...' : 'https://facebook.com/...'} 
               required 
             />
             {isPreviewing && (
@@ -1107,7 +1153,7 @@ function CampaignsTab({ userPoints }: { userPoints: number }) {
               </div>
             )}
 
-            {hasChecked && !isPreviewing && startCount === null && actionType !== 'SHARE_GROUP' && (
+            {hasChecked && !isPreviewing && startCount === null && actionType !== 'SHARE_GROUP' && platform === 'FACEBOOK' && (
               <div style={{ fontSize: '13px', color: '#ff4444', marginTop: '8px', padding: '8px', background: 'rgba(255,0,0,0.1)', borderRadius: '4px', border: '1px solid rgba(255,0,0,0.3)' }}>
                 ❌ <strong>Không thể quét được số lượng!</strong>
                 <div style={{ marginTop: '4px', fontSize: '12px' }}>
@@ -1165,6 +1211,52 @@ function CampaignsTab({ userPoints }: { userPoints: number }) {
             </div>
           )}
           
+          {actionType === 'RECRUIT_AUTO_REPLY' && (
+            <div style={{ background: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: '8px', marginBottom: '15px', border: '1px solid #444' }}>
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label style={{ color: '#ffd700', fontWeight: 'bold' }}>Từ khoá nhận diện ứng viên (cách nhau bởi dấu phẩy)</label>
+                <input
+                  type="text"
+                  value={recruitKeywords}
+                  onChange={e => setRecruitKeywords(e.target.value)}
+                  placeholder="quan tâm, ib, inbox, xin jd, apply, cv, còn tuyển"
+                  style={{ width: '100%', padding: '8px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid #555', borderRadius: '4px' }}
+                />
+                <span style={{ fontSize: '11px', color: '#888' }}>Tool tự động tìm các bình luận chứa từ khoá này để tiếp cận.</span>
+              </div>
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label style={{ color: '#ffd700', fontWeight: 'bold' }}>Mẫu phản hồi bình luận 1 (Hỗ trợ spin-text {'{A|B|C}'})</label>
+                <textarea
+                  value={recruitReplyTemplate}
+                  onChange={e => setRecruitReplyTemplate(e.target.value)}
+                  rows={2}
+                  style={{ width: '100%', padding: '8px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid #555', borderRadius: '4px' }}
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label style={{ color: '#ffd700', fontWeight: 'bold' }}>Mẫu phản hồi bình luận 2 (Tự động luân phiên đổi qua lại với Mẫu 1)</label>
+                <textarea
+                  value={recruitReplyTemplate2}
+                  onChange={e => setRecruitReplyTemplate2(e.target.value)}
+                  rows={2}
+                  placeholder="Nhập nội dung phản hồi mẫu 2 (Tuỳ chọn để luân phiên)..."
+                  style={{ width: '100%', padding: '8px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid #555', borderRadius: '4px' }}
+                />
+                <span style={{ fontSize: '11px', color: '#888' }}>Bot sẽ tự động luân phiên đổi qua lại giữa Mẫu 1 và Mẫu 2 khi trả lời.</span>
+              </div>
+              <div className="form-group">
+                <label style={{ color: '#ffd700', fontWeight: 'bold' }}>Mẫu tin nhắn gửi ứng viên (DM)</label>
+                <textarea
+                  value={recruitDmTemplate}
+                  onChange={e => setRecruitDmTemplate(e.target.value)}
+                  rows={2}
+                  placeholder="Chào bạn, cảm ơn bạn đã quan tâm. Chi tiết công việc: ..."
+                  style={{ width: '100%', padding: '8px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid #555', borderRadius: '4px' }}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="form-group">
             <label>Số lượng cần mua thêm</label>
             <input type="number" min="1" max="100000" value={targetCount} onChange={e => setTargetCount(Number(e.target.value))} required disabled={actionType === 'SHARE_GROUP'} />
@@ -1210,9 +1302,9 @@ function CampaignsTab({ userPoints }: { userPoints: number }) {
         <div className="accounts-grid" style={{ marginTop: '20px' }}>
           {campaigns.map((camp) => (
             <div key={camp.id} className="account-card" style={{ borderLeft: '4px solid #ffd700', background: '#1c1c1c' }}>
-              <div className="platform-badge" style={{ background: camp.platform === 'FACEBOOK' ? '#1877f2' : '#ff0050' }}>{camp.platform}</div>
+              <div className="platform-badge" style={{ background: PLATFORM_COLORS[camp.platform] || '#555' }}>{camp.platform}</div>
               <div className="account-name" style={{ fontSize: '16px', marginTop: '10px' }}>
-                <strong>{camp.actionType}</strong>
+                <strong>{camp.metadata?.realActionType || camp.actionType}</strong>
               </div>
               <div style={{ color: '#999', fontSize: '12px', marginTop: '5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={camp.targetUrl}>
                 {camp.targetUrl}

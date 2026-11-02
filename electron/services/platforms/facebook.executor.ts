@@ -1398,44 +1398,9 @@ export class FacebookExecutor implements IPlatformExecutor {
     }
   }
 
-  async performNurturing(page: Page, settings?: any): Promise<boolean> {
-    try {
-      console.log('[Facebook Nurturing] Bắt đầu nuôi nick Facebook...');
-      await page.goto('https://www.facebook.com/');
-      await this.automationService.wait(4000 + Math.random() * 2000);
-      
-      const scrollCount = 3 + Math.floor(Math.random() * 4);
-      for (let i = 0; i < scrollCount; i++) {
-        await this.automationService.simulateScroll(page, 1500);
-        await this.automationService.wait(3000 + Math.random() * 4000);
-        
-        if (Math.random() < 0.2) {
-          console.log('[Facebook Nurturing] Thả Like dạo Newsfeed...');
-          await this.clickLikeButton(page);
-        }
-      }
-
-      console.log('[Facebook Nurturing] Chuyển sang xem Watch/Video...');
-      await page.goto('https://www.facebook.com/watch/');
-      await this.automationService.wait(4000 + Math.random() * 2000);
-      
-      const videoScrollCount = 2 + Math.floor(Math.random() * 3);
-      for (let i = 0; i < videoScrollCount; i++) {
-         await this.automationService.simulateScroll(page, 1000);
-         await this.automationService.wait(10000 + Math.random() * 15000);
-      }
-
-      // Tự động tham gia nhóm nếu người dùng có cấu hình từ khoá
-      if (settings && settings.autoJoinKeywords) {
-        await this.autoJoinGroups(page, settings.autoJoinKeywords);
-      }
-
-      console.log('[Facebook Nurturing] Hoàn tất phiên nuôi.');
-      return true;
-    } catch (e) {
-      console.error('[Facebook Nurturing] Lỗi:', e);
-      return false;
-    }
+  async performNurturing(_page: Page, _settings?: any): Promise<boolean> {
+    console.log('[Facebook Nurturing] Tính năng nuôi nick tự động đã tắt hoàn toàn theo yêu cầu.');
+    return true;
   }
 
   private async postToGroup(page: Page, task: any, accountId: string = 'default'): Promise<boolean | string> {

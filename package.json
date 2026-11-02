@@ -2,12 +2,12 @@
   "name": "followfree",
   "productName": "FollowFree",
   "private": true,
-  "version": "0.2.2",
+  "version": "0.2.3",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
-    "dev:electron": "wait-on http://localhost:5173 && nodemon --watch electron --ext ts --exec 'tsc -p tsconfig.electron.json && cross-env NODE_ENV=development electron .'",
+    "dev:electron": "wait-on tcp:5173 && nodemon --watch electron --ext ts --delay 2 --exec 'tsc -p tsconfig.electron.json && cross-env NODE_ENV=development electron .'",
     "build": "tsc -b || true && vite build && tsc -p tsconfig.electron.json",
     "build:electron": "electron-builder",
     "lint": "oxlint",
@@ -32,6 +32,8 @@
     "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
+    "@oxlint/binding-darwin-x64": "^1.90.0",
+    "@rolldown/binding-darwin-x64": "^1.2.16",
     "@types/imap-simple": "^4.2.10",
     "@types/mailparser": "^3.4.6",
     "@types/node": "^24.13.3",

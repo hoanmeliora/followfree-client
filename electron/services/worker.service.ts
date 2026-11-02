@@ -10,6 +10,7 @@ import { TargetPreviewService } from './target-preview.service'
 import { IPlatformExecutor } from './platforms/platform-executor.interface'
 import { FacebookExecutor } from './platforms/facebook.executor'
 import { TikTokExecutor } from './platforms/tiktok.executor'
+import { ThreadsExecutor } from './platforms/threads.executor'
 import { NurturingService } from './nurturing/nurturing.service'
 
 
@@ -55,6 +56,7 @@ export class WorkerService {
   private roundRobinIndex: Record<string, number> = {}
   private ipv6Available = false
   private localTimers: Record<string, NodeJS.Timeout> = {}
+  private activePlatformFilter: string | null = null
 
   private readonly ipv6Service = new Ipv6Service()
   private readonly localProxyService = new LocalProxyService()
@@ -65,6 +67,7 @@ export class WorkerService {
   private readonly executorRegistry: Map<string, IPlatformExecutor> = new Map<string, IPlatformExecutor>([
     ['FACEBOOK', new FacebookExecutor(this.automationService, this.selfHealingService, this.store)],
     ['TIKTOK',   new TikTokExecutor(this.automationService, this.selfHealingService)],
+    ['THREADS',  new ThreadsExecutor(this.automationService, this.selfHealingService, this.store)],
   ])
 
   private readonly nurturingService: NurturingService
@@ -81,7 +84,13 @@ export class WorkerService {
       this.executorRegistry,
       (channel, data) => this.pushEvent(channel, data),
       async (accountId, platform, proxyUrl) => {
-         return await this.createBrowserContext(accountId, proxyUrl)
+         const created = await this.createBrowserContext(accountId, proxyUrl)
+         const acc = this.store.getAccounts().find(a => a.id === accountId)
+         if (acc) {
+           const domain = platform === 'TIKTOK' ? '.tiktok.com' : (platform === 'THREADS' ? '.threads.net' : '.facebook.com')
+           await this.injectSessionCookies(created.context, acc, domain)
+         }
+         return created
       }
     )
 
@@ -148,14 +157,17 @@ export class WorkerService {
     this.connect(session.token)
     this.pushEvent('worker:status', this.getStatus())
     
-    // Đảm bảo có phản hồi ngay lập tức trên màn hình
-    setTimeout(() => {
+    // Nếu đã có task sẵn trong hàng đợi thì mới xử lý ngay
+    if (this.taskQueue.length > 0) {
+      setTimeout(() => {
         this.processNextTask();
-    }, 2000);
+      }, 1000);
+    }
   }
 
   stop() {
     this.running = false
+    this.activePlatformFilter = null
     this.socket?.disconnect()
     this.socket = null
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer)
@@ -211,6 +223,11 @@ export class WorkerService {
     })
 
     this.socket.on('new_task', async (task: TaskPayload) => {
+      if (this.activePlatformFilter && task.campaign?.platform !== this.activePlatformFilter) {
+        console.log(`[Worker] Bỏ qua task ${task.id} (${task.campaign?.platform}) vì đang trong chế độ ưu tiên ${this.activePlatformFilter}`)
+        this.reportTaskResult(task.id, '', false, `Worker is in dedicated ${this.activePlatformFilter} mode`)
+        return
+      }
       this.taskQueue.push(task)
       if (this.nurturingService.isRunning()) {
          await this.nurturingService.stopNurturing()
@@ -237,7 +254,10 @@ export class WorkerService {
     const accounts = this.store.getAccounts()
     const machineId = this.getMachineId()
     const accountIds = accounts.map(a => a.id)
-    const supportedPlatforms = [...new Set(accounts.map((a) => a.platform))]
+    let supportedPlatforms = [...new Set(accounts.map((a) => a.platform))]
+    if (this.activePlatformFilter) {
+      supportedPlatforms = [this.activePlatformFilter]
+    }
 
     this.socket.emit('worker_update', {
       machineId,
@@ -253,8 +273,30 @@ export class WorkerService {
     this.pushEvent('worker:status', this.getStatus())
   }
 
-  startLocalCampaign(config: any) {
-    const campaignId = 'local_autopost'
+  async startLocalCampaign(config: any) {
+    if (this.nurturingService.isRunning()) {
+      await this.nurturingService.stopNurturing()
+      await new Promise(r => setTimeout(r, 2000))
+    }
+
+    if (config.platform === 'THREADS') {
+      this.activePlatformFilter = 'THREADS'
+      // 1. Loại bỏ toàn bộ các task nền tảng khác đang tồn đọng trong hàng đợi
+      this.taskQueue = this.taskQueue.filter(t => t.campaign?.platform === 'THREADS')
+      // 2. Dừng tính năng Săn Khách Facebook nếu đang chạy ngầm
+      if (this.scanner.isRunning()) {
+        console.log('[Worker] Tự động tạm dừng Facebook Scanner khi chạy chiến dịch Threads')
+        this.scanner.stop().catch(() => {})
+      }
+      // 3. Huỷ timer auto post Facebook nếu có
+      if (this.localTimers['local_autopost']) {
+        clearInterval(this.localTimers['local_autopost'])
+        delete this.localTimers['local_autopost']
+      }
+      this.reportCapacityUpdate()
+    }
+
+    const campaignId = config.id || (config.platform === 'THREADS' ? 'local_threads' : 'local_autopost')
     if (this.localTimers[campaignId]) {
       clearInterval(this.localTimers[campaignId])
     }
@@ -268,10 +310,13 @@ export class WorkerService {
           platform: config.platform,
           actionType: config.actionType,
           targetUrl: config.targetUrl,
+          metadata: config.metadata,
+          targetCount: config.targetCount,
         },
+        metadata: config.metadata,
         ...config // Gắn luôn config (bao gồm metadata.postData)
       })
-      console.log(`[LocalScheduler] Fired task cho ${campaignId}`)
+      console.log(`[LocalScheduler] Fired task cho ${campaignId} (${config.platform})`)
       this.processNextTask()
     }
 
@@ -297,10 +342,14 @@ export class WorkerService {
   private async processNextTask() {
     if (!this.running || this.currentTask) return
     if (this.taskQueue.length === 0) {
-        this.nurturingService.performIdleNurturing().catch(e => console.error(e))
-        return
+      // Hàng đợi rỗng, không tự ý chiếm quyền trình duyệt
+      return
     }
     const task = this.taskQueue.shift()!
+    if (this.activePlatformFilter && task.campaign?.platform !== this.activePlatformFilter) {
+      console.log(`[Worker] Bỏ qua task ${task.id} (${task.campaign?.platform}) vì đang trong chế độ ưu tiên ${this.activePlatformFilter}`)
+      return this.processNextTask()
+    }
 
     // FIX #1: Nếu không có IPv6 VÀ không có proxy → giới hạn 3 tài khoản luân phiên
     if (!this.ipv6Available) {
@@ -410,8 +459,6 @@ export class WorkerService {
     this.pushEvent('worker:status', this.getStatus())
     if (this.taskQueue.length > 0) {
       this.taskCooldownTimer = setTimeout(() => this.processNextTask(), TASK_COOLDOWN_MS)
-    } else {
-      this.nurturingService.performIdleNurturing().catch(e => console.error(e))
     }
   }
 
@@ -478,9 +525,8 @@ export class WorkerService {
            return undefined;
        })(),
        args: [
-         ...(process.platform === 'darwin' ? [] : ['--disable-gpu']),
-         '--no-sandbox',
-         '--disable-setuid-sandbox',
+         ...(process.platform === 'darwin' ? [] : ['--disable-gpu', '--no-sandbox', '--disable-setuid-sandbox']),
+         '--test-type',
          '--disable-dev-shm-usage',
          '--disable-web-security',
          '--disk-cache-size=20000000',
@@ -510,38 +556,65 @@ export class WorkerService {
     // Lấy trang đầu tiên có sẵn trong context
     const pages = context.pages();
     const page = pages.length > 0 ? pages[0] : await context.newPage();
+    await page.bringToFront().catch(() => {});
     
     return { context, page }
   }
 
   /** Loads the stored login cookies into the browser profile when it has no active session yet. */
   private async injectSessionCookies(context: BrowserContext, account: { cookieData?: string }, fallbackDomain: string): Promise<void> {
-    const existingCookies = await context.cookies()
+    const existingCookies = await context.cookies().catch(() => [])
     const hasSession = existingCookies.some(c => c.name === 'c_user' || c.name === 'sessionid')
     if (hasSession || !account.cookieData) return
 
-    let parsedCookies: any[] = []
+    let rawCookies: any[] = []
     try {
-      parsedCookies = JSON.parse(account.cookieData)
-      // Xử lý lỗi sameSite của Playwright (chỉ chấp nhận Strict, Lax, None)
-      parsedCookies = parsedCookies.map(cookie => {
-        if (cookie.sameSite) {
-          const sameSiteLower = cookie.sameSite.toLowerCase()
-          if (['strict', 'lax', 'none'].includes(sameSiteLower)) {
-            cookie.sameSite = cookie.sameSite.charAt(0).toUpperCase() + cookie.sameSite.slice(1).toLowerCase()
-          } else {
-            delete cookie.sameSite
-          }
-        }
-        return cookie
-      })
+      rawCookies = JSON.parse(account.cookieData)
     } catch {
-      parsedCookies = account.cookieData.split(';').map((pair: string) => {
+      rawCookies = account.cookieData.split(';').map((pair: string) => {
         const [name, ...rest] = pair.trim().split('=')
         return { name, value: rest.join('='), domain: fallbackDomain, path: '/' }
       })
     }
-    await context.addCookies(parsedCookies)
+
+    if (!Array.isArray(rawCookies)) return
+
+    const sanitizedCookies: any[] = []
+    for (const c of rawCookies) {
+      if (!c || !c.name || typeof c.name !== 'string') continue
+      const cookieObj: any = {
+        name: c.name,
+        value: c.value || '',
+        path: c.path || '/',
+        domain: c.domain || fallbackDomain,
+        secure: typeof c.secure === 'boolean' ? c.secure : true,
+        httpOnly: typeof c.httpOnly === 'boolean' ? c.httpOnly : false,
+      }
+      if (c.sameSite) {
+        const s = String(c.sameSite).toLowerCase()
+        if (s === 'strict') cookieObj.sameSite = 'Strict'
+        else if (s === 'lax') cookieObj.sameSite = 'Lax'
+        else if (s === 'none') cookieObj.sameSite = 'None'
+      }
+      if (c.expirationDate && typeof c.expirationDate === 'number') {
+        cookieObj.expires = Math.floor(c.expirationDate)
+      } else if (c.expires && typeof c.expires === 'number') {
+        cookieObj.expires = Math.floor(c.expires)
+      }
+      sanitizedCookies.push(cookieObj)
+    }
+
+    try {
+      await context.addCookies(sanitizedCookies)
+      console.log(`[Worker] Đã inject thành công ${sanitizedCookies.length} cookies cho ${fallbackDomain}`)
+    } catch (err: any) {
+      console.warn('[Worker] Thử inject từng cookie do lỗi batch:', err.message)
+      for (const sc of sanitizedCookies) {
+        try {
+          await context.addCookies([sc])
+        } catch {}
+      }
+    }
   }
 
   private async executeWithPlaywright(
@@ -573,34 +646,56 @@ export class WorkerService {
     const { context, page } = await this.createBrowserContext(account.id, proxyUrl)
 
     try {
-      await this.injectSessionCookies(context, account, task.campaign.platform === 'TIKTOK' ? '.tiktok.com' : '.facebook.com')
+      const platformDomain = task.campaign.platform === 'TIKTOK'
+        ? '.tiktok.com'
+        : (task.campaign.platform === 'THREADS' ? '.threads.net' : '.facebook.com')
+      
+      try {
+        await this.injectSessionCookies(context, account, platformDomain)
+      } catch (cookieErr: any) {
+        console.warn('[Worker] Lỗi nạp cookie phiên, tiếp tục điều hướng:', cookieErr.message)
+      }
 
       // Với SHARE_GROUP và POST_GROUP, không nên vào targetUrl trước vì kịch bản sẽ tự xử lý.
-      // Thay vào đó, vào trang chủ Facebook để check login.
       const initialUrl = (task.campaign.actionType === 'SHARE_GROUP' || task.campaign.actionType === 'POST_GROUP') 
         ? 'https://www.facebook.com' 
-        : task.campaign.targetUrl;
+        : (task.campaign.targetUrl || (task.campaign.platform === 'THREADS' ? 'https://www.threads.net' : 'https://www.facebook.com'));
+      
       console.log(`[Worker] Đang điều hướng đến: ${initialUrl}...`)
       try {
-        await page.goto(initialUrl, { timeout: 30000 });
-        console.log(`[Worker] Điều hướng thành công!`)
+        await page.goto(initialUrl, { waitUntil: 'domcontentloaded', timeout: 35000 });
+        console.log(`[Worker] Điều hướng thành công! URL hiện tại: ${page.url()}`)
       } catch (err: any) {
-        console.error(`[Worker] Lỗi điều hướng (Có thể do proxy hoặc mạng yếu):`, err.message)
-        throw err;
+        console.warn(`[Worker] Cảnh báo điều hướng lần 1:`, err.message)
+        try {
+          await page.goto(initialUrl, { waitUntil: 'commit', timeout: 20000 });
+          console.log(`[Worker] Điều hướng lần 2 (commit) thành công!`)
+        } catch (e2: any) {
+          console.error(`[Worker] Lỗi điều hướng sau 2 lần thử:`, e2.message);
+          throw e2;
+        }
       }
       await page.waitForTimeout(4000)
 
-      const isLoginScreen = await page.evaluate(() => {
-         const hasLoginInputs = !!document.querySelector('input[name="email"], input[name="pass"]');
-         const isLoginUrl = window.location.href.includes('login') || window.location.href.includes('checkpoint');
-         
-         const textContent = document.body?.textContent?.toLowerCase() || '';
-         const hasCheckpointModal = textContent.includes('confirm your identity') || 
-                                    textContent.includes('certain actions have been restricted') ||
-                                    textContent.includes('xác nhận danh tính');
-                                    
-         return hasLoginInputs || isLoginUrl || hasCheckpointModal;
-      }).catch(() => false)
+      let isLoginScreen = false
+      if (task.campaign.platform === 'THREADS') {
+        isLoginScreen = await page.evaluate(() => {
+          const path = window.location.pathname.toLowerCase()
+          return path.startsWith('/login')
+        }).catch(() => false)
+      } else {
+        isLoginScreen = await page.evaluate(() => {
+          const hasLoginInputs = !!document.querySelector('input[name="email"], input[name="pass"]')
+          const isLoginUrl = window.location.href.includes('login') || window.location.href.includes('checkpoint')
+          
+          const textContent = document.body?.textContent?.toLowerCase() || ''
+          const hasCheckpointModal = textContent.includes('confirm your identity') || 
+                                     textContent.includes('certain actions have been restricted') ||
+                                     textContent.includes('xác nhận danh tính')
+                                     
+          return hasLoginInputs || isLoginUrl || hasCheckpointModal
+        }).catch(() => false)
+      }
 
       if (isLoginScreen) {
         console.error('❌ Session cookie hết hạn! Cập nhật status → CHECKPOINT')
@@ -615,7 +710,7 @@ export class WorkerService {
         }
       } catch {}
 
-      const result = await executor.performAction(page, task, account)
+      const result = await (executor as any).performAction(page, task, account, () => !this.running)
       await page.waitForTimeout(5000)
 
       return result

@@ -444,4 +444,19 @@ export class StoreService {
     const current = this.getAiConfig();
     (this.store as any).set('aiConfig', { ...current, ...config });
   }
+
+  // Quản lý danh sách các bài viết Threads đã từng phản hồi (Chống trùng lặp vĩnh viễn)
+  getRepliedThreadPosts(): string[] {
+    return (this.store as any).get('repliedThreadPosts') ?? []
+  }
+
+  addRepliedThreadPost(key: string): void {
+    if (!key) return
+    const list: string[] = this.getRepliedThreadPosts()
+    if (!list.includes(key)) {
+      list.push(key)
+      if (list.length > 5000) list.shift()
+      ;(this.store as any).set('repliedThreadPosts', list)
+    }
+  }
 }

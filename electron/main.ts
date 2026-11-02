@@ -499,6 +499,7 @@ function setupIpcHandlers(
           // Facebook uses c_user, TikTok uses sessionid, Google uses SID/HSID
           const isLoggedIn = (platform.toUpperCase() === 'FACEBOOK' && cookieNames.includes('c_user')) || 
                              (platform.toUpperCase() === 'TIKTOK' && cookieNames.includes('sessionid')) ||
+                             (platform.toUpperCase() === 'THREADS' && (cookieNames.includes('sessionid') || cookieNames.includes('ds_user_id'))) ||
                              (platform.toUpperCase() === 'GMAIL' && (cookieNames.includes('SID') || cookieNames.includes('HSID')))
                              
           if (isLoggedIn && !isResolved) {
@@ -506,7 +507,7 @@ function setupIpcHandlers(
             clearInterval(checkInterval)
             const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ')
             
-            let extractedName = platform.toUpperCase() === 'FACEBOOK' ? 'Tài khoản Facebook' : platform.toUpperCase() === 'GMAIL' ? 'Tài khoản Gmail' : 'Tài khoản TikTok'
+            let extractedName = platform.toUpperCase() === 'FACEBOOK' ? 'Tài khoản Facebook' : platform.toUpperCase() === 'GMAIL' ? 'Tài khoản Gmail' : platform.toUpperCase() === 'THREADS' ? 'Tài khoản Threads' : 'Tài khoản TikTok'
             let avatarUrl = ''
             
             try {
@@ -520,6 +521,11 @@ function setupIpcHandlers(
                   extractedName = capturedEmail
                 } else if (userId) {
                   extractedName = `FB_${userId}`
+                }
+              } else if (platform.toUpperCase() === 'THREADS') {
+                const dsUserId = cookies.find(c => c.name === 'ds_user_id')?.value
+                if (dsUserId) {
+                  extractedName = `Threads_${dsUserId}`
                 }
               } else if (platform.toUpperCase() === 'TIKTOK') {
                 // Tương tự với TikTok
