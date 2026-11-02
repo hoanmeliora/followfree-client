@@ -8,7 +8,7 @@
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
     "dev:electron": "wait-on tcp:5173 && nodemon --watch electron --ext ts --delay 2 --exec 'tsc -p tsconfig.electron.json && cross-env NODE_ENV=development electron .'",
-    "build": "tsc -b || true && vite build && tsc -p tsconfig.electron.json",
+    "build": "tsc -b && vite build && tsc -p tsconfig.electron.json",
     "build:electron": "electron-builder",
     "lint": "oxlint",
     "preview": "vite preview"
