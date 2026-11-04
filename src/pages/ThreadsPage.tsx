@@ -73,13 +73,24 @@ export default function ThreadsPage({ addLog, session }: Props) {
       setThreadsAccounts(filtered);
     }).catch(console.error);
 
-    // 2. Lấy danh sách chiến dịch Threads
+    // 2. Lấy danh sách chiến dịch Threads (kết hợp local campaigns và server campaigns nếu có)
+    let localSaved: any[] = [];
+    try {
+      localSaved = JSON.parse(localStorage.getItem('threads_local_campaigns') || '[]');
+    } catch (e) {}
+
     window.electronAPI?.getCampaigns().then((res: any) => {
       if (res?.success && Array.isArray(res.data)) {
-        const filtered = res.data.filter((c: any) => c.platform === 'THREADS');
-        setCampaigns(filtered);
+        const serverFiltered = res.data.filter((c: any) => c.platform === 'THREADS');
+        const ids = new Set(serverFiltered.map((c: any) => c.id));
+        const combined = [...localSaved.filter((c: any) => !ids.has(c.id)), ...serverFiltered];
+        setCampaigns(combined);
+      } else {
+        setCampaigns(localSaved);
       }
-    }).catch(console.error);
+    }).catch(() => {
+      setCampaigns(localSaved);
+    });
 
     // 3. Lấy trạng thái Worker
     window.electronAPI?.getWorkerStatus?.().then((res: any) => {
@@ -175,17 +186,28 @@ export default function ThreadsPage({ addLog, session }: Props) {
   // Huỷ / Xoá chiến dịch Threads
   const handleRemoveCampaign = async (id: string, isRunning: boolean) => {
     const confirmMsg = isRunning
-      ? 'Bạn có chắc muốn huỷ chiến dịch này? Số Xu chưa sử dụng sẽ được hoàn lại vào tài khoản.'
+      ? 'Bạn có chắc muốn dừng / huỷ chiến dịch này?'
       : 'Bạn có chắc muốn xoá chiến dịch này khỏi danh sách?';
     if (!confirm(confirmMsg)) return;
 
     try {
-      const res = await window.electronAPI?.cancelCampaign?.(id);
-      if (res?.error) {
-        setStatusMsg({ text: res.error, type: 'error' });
+      if (id.startsWith('local_')) {
+        let existing: any[] = [];
+        try {
+          existing = JSON.parse(localStorage.getItem('threads_local_campaigns') || '[]');
+        } catch (e) {}
+        const updated = existing.filter((c: any) => c.id !== id);
+        localStorage.setItem('threads_local_campaigns', JSON.stringify(updated));
+        setCampaigns(prev => prev.filter(c => c.id !== id));
+        setStatusMsg({ text: '✅ Đã xoá chiến dịch Threads thành công!', type: 'success' });
       } else {
-        setStatusMsg({ text: res?.message || '✅ Đã xoá / huỷ chiến dịch thành công!', type: 'success' });
-        loadData();
+        const res = await window.electronAPI?.cancelCampaign?.(id);
+        if (res?.error) {
+          setStatusMsg({ text: res.error, type: 'error' });
+        } else {
+          setStatusMsg({ text: res?.message || '✅ Đã xoá / huỷ chiến dịch thành công!', type: 'success' });
+          loadData();
+        }
       }
     } catch (err: any) {
       setStatusMsg({ text: err.message, type: 'error' });
@@ -225,34 +247,51 @@ export default function ThreadsPage({ addLog, session }: Props) {
         metadata = { realActionType: 'REPOST', scanMode, isContinuous };
       }
 
-      const res = await window.electronAPI?.createCampaign({
+      const campaignId = `local_threads_${Date.now()}`;
+      const campaignPayload = {
+        id: campaignId,
         platform: 'THREADS',
         actionType: serverActionType,
         targetUrl,
         targetCount: Number(targetCount),
         metadata,
-      });
+      };
 
-      if (res?.success) {
-        // Kích hoạt ngay Local Campaign cho Threads để máy chạy tức thì, không bị trễ
-        await window.electronAPI?.createLocalCampaign?.({
-          platform: 'THREADS',
-          actionType: serverActionType,
-          targetUrl,
-          targetCount: Number(targetCount),
-          metadata,
-        });
+      // 1. Kích hoạt ngay Local Campaign cho Threads để máy chạy tức thì 100% không phụ thuộc server
+      await window.electronAPI?.createLocalCampaign?.(campaignPayload);
 
-        // Tự động kích hoạt Bot Worker nếu chưa chạy
-        if (!isWorkerRunning) {
-          await window.electronAPI?.startWorker?.();
-          setIsWorkerRunning(true);
-        }
-        setStatusMsg({ text: '🎉 Đã khởi tạo chiến dịch & kích hoạt Bot! Trình duyệt đang mở Threads để làm việc...', type: 'success' });
-        loadData();
-      } else {
-        setStatusMsg({ text: res?.error || 'Không thể tạo chiến dịch, vui lòng kiểm tra số dư Xu.', type: 'error' });
+      // Lưu vào danh sách local campaigns
+      const newLocalCamp = {
+        ...campaignPayload,
+        doneCount: 0,
+        status: 'RUNNING',
+        createdAt: new Date().toISOString(),
+      };
+      let existing: any[] = [];
+      try {
+        existing = JSON.parse(localStorage.getItem('threads_local_campaigns') || '[]');
+      } catch (e) {}
+      const updated = [newLocalCamp, ...existing.filter((c: any) => c.id !== campaignId).slice(0, 19)];
+      localStorage.setItem('threads_local_campaigns', JSON.stringify(updated));
+      setCampaigns(updated);
+
+      // 2. Tự động kích hoạt Bot Worker nếu chưa chạy
+      if (!isWorkerRunning) {
+        await window.electronAPI?.startWorker?.();
+        setIsWorkerRunning(true);
       }
+
+      setStatusMsg({ text: '🎉 Đã khởi tạo chiến dịch & kích hoạt Bot! Trình duyệt đang mở Threads để làm việc...', type: 'success' });
+      addLog?.('🎉 Đã khởi tạo chiến dịch Threads & kích hoạt Bot!', 'success');
+
+      // 3. Đồng bộ lên server nếu có phiên đăng nhập hợp lệ (tuỳ chọn, không chặn bot)
+      window.electronAPI?.createCampaign?.({
+        platform: 'THREADS',
+        actionType: serverActionType,
+        targetUrl,
+        targetCount: Number(targetCount),
+        metadata,
+      }).catch(() => {});
     } catch (err: any) {
       setStatusMsg({ text: err.message, type: 'error' });
     } finally {
