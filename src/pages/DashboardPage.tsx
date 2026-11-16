@@ -4,6 +4,7 @@ import './DashboardPage.css'
 import AutoRegPage from './AutoRegPage'
 import AutoPostPage from './AutoPostPage'
 import ThreadsPage from './ThreadsPage'
+import TikTokPage from './TikTokPage'
 import { ScannerPage } from './ScannerPage'
 import { AiAssistantPage } from './AiAssistantPage'
 
@@ -46,9 +47,9 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '' })
   const [passwordError, setPasswordError] = useState('')
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'accounts' | 'campaigns' | 'deposits' | 'emails' | 'autoreg' | 'autopost' | 'threads' | 'scanner' | 'ai' | 'settings'>('dashboard')
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'accounts' | 'campaigns' | 'deposits' | 'emails' | 'autoreg' | 'autopost' | 'threads' | 'tiktok' | 'scanner' | 'ai' | 'settings'>('dashboard')
   const [appSettings, setAppSettings] = useState({ runHeadless: false, autoJoinKeywords: '' })
-  const [appVersion, setAppVersion] = useState<string>('0.2.4')
+  const [appVersion, setAppVersion] = useState<string>('0.2.5')
   const [updateProgress, setUpdateProgress] = useState<{ percent: number; bytesPerSecond: number; total: number; transferred: number } | null>(null)
   const [updateStatus, setUpdateStatus] = useState<string>('')
   const [updateReady, setUpdateReady] = useState(false)
@@ -304,6 +305,13 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
               <span className="nav-icon">🧵</span> Threads Tuyển Dụng
             </button>
             <button
+              className={`nav-item ${activeTab === 'tiktok' ? 'active' : ''}`}
+              onClick={() => setActiveTab('tiktok')}
+              style={{ background: activeTab === 'tiktok' ? '' : 'rgba(255, 0, 80, 0.08)', color: activeTab === 'tiktok' ? '' : '#ff0050' }}
+            >
+              <span className="nav-icon">🎵</span> TikTok Automation
+            </button>
+            <button
               className={`nav-item ${activeTab === 'scanner' ? 'active' : ''}`}
               onClick={() => setActiveTab('scanner')}
               style={{ background: activeTab === 'scanner' ? '' : 'rgba(33, 150, 243, 0.1)', color: activeTab === 'scanner' ? '' : '#2196F3' }}
@@ -493,6 +501,10 @@ export function DashboardPage({ session, onLogout, onSessionUpdate }: Props) {
 
           {activeTab === 'threads' && (
             <ThreadsPage addLog={addLog} session={session} />
+          )}
+
+          {activeTab === 'tiktok' && (
+            <TikTokPage addLog={addLog} session={session} />
           )}
 
           {activeTab === 'scanner' && <ScannerPage />}

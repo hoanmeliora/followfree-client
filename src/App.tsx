@@ -65,6 +65,7 @@ declare global {
         autoFilterSpam?: boolean
         scanComments?: boolean
         maxPostAgeDays?: number
+        maxPostLength?: number
         intervalMinutes: number
         isRunning: boolean
         notifyRecipient?: string
@@ -78,6 +79,7 @@ declare global {
         autoFilterSpam?: boolean
         scanComments?: boolean
         maxPostAgeDays?: number
+        maxPostLength?: number
         intervalMinutes: number
         notifyRecipient?: string
       }) => Promise<{ success: boolean; error?: string }>

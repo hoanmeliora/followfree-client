@@ -66,6 +66,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     autoFilterSpam?: boolean
     scanComments?: boolean
     maxPostAgeDays?: number
+    maxPostLength?: number
     intervalMinutes: number
     notifyRecipient?: string
   }) => ipcRenderer.invoke('scanner:saveConfig', input),

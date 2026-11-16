@@ -121,6 +121,7 @@ export interface ScannerConfig {
   autoFilterSpam?: boolean;
   scanComments?: boolean;
   maxPostAgeDays?: number; // Chỉ quét bài đăng trong vòng N ngày đổ lại (mặc định 3)
+  maxPostLength?: number; // Bỏ qua bài viết dài hơn N ký tự (0 = không giới hạn, mặc định 400 để né bài tuyển dụng/JD dài)
   intervalMinutes: number;
   isRunning: boolean;
   notifyRecipient?: string; // Canonical Messenger thread URL that receives new-lead digests
@@ -384,8 +385,9 @@ export class StoreService {
       commentKeywords: [],
       excludeKeywords: [],
       autoFilterSpam: true,
-      scanComments: false,
+      scanComments: true,
       maxPostAgeDays: 3,
+      maxPostLength: 30,
       intervalMinutes: 15,
       isRunning: false,
     }
@@ -403,7 +405,19 @@ export class StoreService {
 
   addLead(lead: ScrapedLead): boolean {
     const leads = this.getLeads();
-    if (leads.some(l => l.id === lead.id)) return false;
+    // Chống trùng lặp tuyệt đối: Trùng ID, hoặc cùng URL bài viết, hoặc tác giả và nội dung tương đồng
+    const isDuplicate = leads.some(l => {
+      if (l.id === lead.id) return true;
+      if (l.postUrl && lead.postUrl && l.postUrl.split('?')[0] === lead.postUrl.split('?')[0] && !l.postUrl.endsWith('/groups/')) {
+        return true;
+      }
+      const lAuthor = (l.authorName || '').replace(/^[^\w\s]+|\s*\([^)]*\)/g, '').trim().toLowerCase();
+      const newAuthor = (lead.authorName || '').replace(/^[^\w\s]+|\s*\([^)]*\)/g, '').trim().toLowerCase();
+      const authorMatch = lAuthor.length > 2 && (lAuthor.includes(newAuthor) || newAuthor.includes(lAuthor));
+      const contentMatch = l.content.slice(0, 40).trim().toLowerCase() === lead.content.slice(0, 40).trim().toLowerCase();
+      return authorMatch && contentMatch;
+    });
+    if (isDuplicate) return false;
     leads.unshift(lead);
     if (leads.length > 1000) leads.pop();
     (this.store as any).set('leads', leads);

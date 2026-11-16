@@ -26,6 +26,53 @@ function removeVietnameseTones(str: string): string {
     .toLowerCase();
 }
 
+/** Nhận diện tài khoản HR / Tuyển dụng trên Threads (ví dụ: @ntrinhhr, @hr_vieclam) */
+const THREADS_RECRUITER_AUTHOR_PATTERN = /(?:^|[._-])hr\b|\bhr(?:[._-]|$)|tuyen\s*dung|nhan\s*su|viec\s*lam|headhunt|recruiter/i
+
+/** Nhận diện bài đăng tuyển dụng của nhà tuyển dụng khác để né, tránh cmt nhầm vào đối thủ */
+const THREADS_RECRUITER_PATTERNS = [
+  /\btuyen\s*dung\b/,
+  /\btuyen\s*gap\b/,
+  /\blcb\b/,
+  /\bpvtt\b/,
+  /\bko\s*kpi\b|\bkhong\s*kpi\b/,
+  /(?<!ai\s)(?<!nao\s)(?<!dang\s)(?<!can\s)\btuyen\s+(?:gap|them|moi|lien\s*tuc|so\s*luong|cong\s*nhan|nhan\s*vien|lao\s*dong|ldpt|nam|nu|tho|bao\s*ve|tap\s*vu|tai\s*xe|lai\s*xe|phuc\s*vu|phu\s*bep|ban\s*hang|thu\s*ngan|kho|dong\s*goi|lap\s*rap|ky\s*thuat|ke\s*toan|sale|tu\s*van|cong\s*tac\s*vien|ctv|si)\b/,
+  /\b(?:luong\s*(?:&|va)\s*phu\s*cap|luong\s*co\s*ban|tong\s*phu\s*cap|tro\s*cap\s*ky\s*thuat|phu\s*cap\s*[:.-]|muc\s*luong\s*[:.-]|tong\s*thu\s*nhap|thu\s*nhap\s*[:.-]|thu\s*nhap\s+tu\b)\b/,
+  /\b(?:quyen\s*loi\s*[:.-]|mo\s*ta\s*cong\s*viec|yeu\s*cau\s*(?:cong\s*viec|ung\s*vien)|ho\s*so\s*(?:bao\s*gom|gom)\s*[:.-]|nop\s*ho\s*so)\b/,
+  /\b(?:chuyen\s*can|tham\s*nien|an\s*ca\s*mien\s*phi|ho\s*tro\s*an\s*ca|dao\s*tao\s*khi\s*nhan\s*viec|phong\s*van\s*truc\s*tiep|ung\s*tuyen\s*ngay)\b/,
+  /\b(?:co\.?\s*ltd|cong\s*ty\s*tnhh|cong\s*ty\s*co\s*phan|(?:mo|tao)\s*co\s*hoi\s*cho\s*ung\s*vien)\b/,
+]
+
+const THREADS_RECRUITING_PHRASE_PATTERN = /\b(?:can|dang)\s+tuyen\b/
+const THREADS_SALARY_OR_BENEFIT_PATTERNS = [
+  /\b(?:quyen\s*loi|phu\s*cap|tro\s*cap|luong|thu\s*nhap|hoa\s*hong|che\s*do|thuong)\b/,
+  /\b\d{1,3}(?:[.,]\d{3})+(?:\s*(?:d|vnd))?\b/,
+  /\b\d+(?:[.,-]\d+)?\s*(?:tr|trieu|k|nghin|ngan|cu|m)\b/,
+]
+
+function isRecruiterContent(text: string, authorInfo?: string): { isRecruiter: boolean; reason?: string } {
+  if (authorInfo && THREADS_RECRUITER_AUTHOR_PATTERN.test(authorInfo)) {
+    return { isRecruiter: true, reason: `Tài khoản tuyển dụng/HR ("${authorInfo}")` }
+  }
+
+  const norm = removeVietnameseTones(text).replace(/\s+/g, ' ').trim()
+
+  for (const pattern of THREADS_RECRUITER_PATTERNS) {
+    if (pattern.test(norm)) {
+      return { isRecruiter: true, reason: 'Phát hiện bài đăng tuyển dụng của nhà tuyển dụng/đối thủ' }
+    }
+  }
+
+  if (
+    THREADS_RECRUITING_PHRASE_PATTERN.test(norm) &&
+    THREADS_SALARY_OR_BENEFIT_PATTERNS.some((p) => p.test(norm))
+  ) {
+    return { isRecruiter: true, reason: 'Bài có "đang tuyển/cần tuyển" kèm mức lương hoặc quyền lợi' }
+  }
+
+  return { isRecruiter: false }
+}
+
 /**
  * So khớp từ khoá chuẩn xác:
  * - So khớp cả tiếng Việt có dấu VÀ không dấu (ví dụ: 'tim viec' = 'tìm việc')
@@ -609,7 +656,15 @@ export class ThreadsExecutor implements IPlatformExecutor {
           const matchedKw = findMatchedKeyword(text, targetKeywords)
           if (!matchedKw) continue
 
-          // 3. Chống trùng lặp theo Post ID duy nhất (Không chặn theo 50 ký tự đầu để không bị bỏ sót các bài cùng chủ đề)
+          // 3. Né bài viết của nhà tuyển dụng / đối thủ (tránh cmt nhầm vào HR khác)
+          const authorHandle = authorProfileUrl ? authorProfileUrl.replace(/.*\/@/, '').split(/[?#]/)[0] : undefined
+          const recruiterCheck = isRecruiterContent(text, authorHandle)
+          if (recruiterCheck.isRecruiter) {
+            console.log(`[Threads Recruit] 🛡️ Né bài tuyển dụng: ${recruiterCheck.reason} ("${authorHandle || 'Tác giả'}"): "${text.substring(0, 50).replace(/\n/g, ' ')}..."`)
+            continue
+          }
+
+          // 4. Chống trùng lặp theo Post ID duy nhất (Không chặn theo 50 ký tự đầu để không bị bỏ sót các bài cùng chủ đề)
           const postId = await extractThreadPostId(block)
           if (postId) {
             if (currentRunSnippets.has(postId) || (repliedSnippets && repliedSnippets.has(postId))) {

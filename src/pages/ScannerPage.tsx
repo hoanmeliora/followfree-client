@@ -65,8 +65,9 @@ export function ScannerPage() {
   const [commentKeywordsText, setCommentKeywordsText] = useState('')
   const [excludeKeywordsText, setExcludeKeywordsText] = useState('')
   const [autoFilterSpam, setAutoFilterSpam] = useState(true)
-  const [scanComments, setScanComments] = useState(false)
+  const [scanComments, setScanComments] = useState(true)
   const [maxPostAgeDays, setMaxPostAgeDays] = useState(3)
+  const [maxPostLength, setMaxPostLength] = useState(30)
   const [intervalMinutes, setIntervalMinutes] = useState(15)
   const [recipient, setRecipient] = useState('')
   const [isRunning, setIsRunning] = useState(false)
@@ -85,8 +86,9 @@ export function ScannerPage() {
       setCommentKeywordsText((config.commentKeywords ?? []).join('\n'))
       setExcludeKeywordsText((config.excludeKeywords ?? []).join('\n'))
       setAutoFilterSpam(config.autoFilterSpam !== false)
-      setScanComments(config.scanComments === true)
+      setScanComments(config.scanComments !== false)
       setMaxPostAgeDays(config.maxPostAgeDays ?? 3)
+      setMaxPostLength(config.maxPostLength ?? 30)
       setIntervalMinutes(config.intervalMinutes)
       setRecipient(config.notifyRecipient ?? '')
       setIsRunning(config.isRunning)
@@ -118,6 +120,7 @@ export function ScannerPage() {
       autoFilterSpam,
       scanComments,
       maxPostAgeDays,
+      maxPostLength,
       intervalMinutes,
       notifyRecipient: recipient,
     })
@@ -131,13 +134,14 @@ export function ScannerPage() {
     setCommentKeywordsText((saved.commentKeywords ?? []).join('\n'))
     setExcludeKeywordsText((saved.excludeKeywords ?? []).join('\n'))
     setAutoFilterSpam(saved.autoFilterSpam !== false)
-    setScanComments(saved.scanComments === true)
+    setScanComments(saved.scanComments !== false)
     setMaxPostAgeDays(saved.maxPostAgeDays ?? 3)
+    setMaxPostLength(saved.maxPostLength ?? 30)
     setIntervalMinutes(saved.intervalMinutes)
     setRecipient(saved.notifyRecipient ?? '')
     setMessage({ text: 'Đã lưu cấu hình bộ lọc săn khách', kind: 'success' })
     return true
-  }, [groupsText, keywordsText, commentKeywordsText, excludeKeywordsText, autoFilterSpam, scanComments, maxPostAgeDays, intervalMinutes, recipient])
+  }, [groupsText, keywordsText, commentKeywordsText, excludeKeywordsText, autoFilterSpam, scanComments, maxPostAgeDays, maxPostLength, intervalMinutes, recipient])
 
   const toggleScanner = async () => {
     if (isRunning) {
@@ -292,7 +296,7 @@ export function ScannerPage() {
                 id="scanner-comment-keywords"
                 className="scanner-textarea"
                 rows={5}
-                placeholder={'còn tuyển ko\nib e với\ngiá sao\nchấm\nrep ib\ncòn ko ạ\ncho e xin info\nnhận nam ko'}
+                placeholder={'ib e với\nquan tâm\ncòn tuyển ko\ncó giới hạn độ tuổi không\nbao nhiêu tuổi\nnhận nam ko\nchấm\n.\nxin info\nở đâu ạ'}
                 value={commentKeywordsText}
                 disabled={isRunning}
                 onChange={(e) => {
@@ -315,7 +319,7 @@ export function ScannerPage() {
                 id="scanner-exclude-keywords"
                 className="scanner-textarea"
                 rows={5}
-                placeholder={'tuyển dụng\ntuyển gấp\nthu nhập\nmức lương\nyêu cầu hồ sơ\nxả kho\nsẵn hàng\nbán\ntài xỉu\nvay vốn'}
+                placeholder={'tuyển dụng\ntuyển gấp\nthu nhập\nmức lương\nyêu cầu hồ sơ\nxả kho\nsẵn hàng\nlắp mạng\nlắp wifi\nfpt\nviettel\nmỗi mẫu\nsale rẻ\nthanh lý\ntrả góp\nliệt sĩ\ntai nạn\ntừ thiện\nbán\ntài xỉu\nvay vốn'}
                 value={excludeKeywordsText}
                 disabled={isRunning}
                 onChange={(e) => setExcludeKeywordsText(e.target.value)}
@@ -347,6 +351,27 @@ export function ScannerPage() {
                     <small>Né các bài có Hotline, Zalo, STK, địa chỉ shop hoặc link Shopee/Lazada/TikTok</small>
                   </span>
                 </label>
+              </div>
+
+              <div style={{ marginTop: '12px' }}>
+                <label className="scanner-label" htmlFor="scanner-max-post-len">
+                  📏 Giới hạn số từ tối đa của bài viết (Mặc định 30 từ):
+                </label>
+                <input
+                  id="scanner-max-post-len"
+                  type="number"
+                  min={0}
+                  max={1000}
+                  step={5}
+                  className="scanner-input"
+                  style={{ width: '100%', marginTop: '4px' }}
+                  value={maxPostLength}
+                  disabled={isRunning}
+                  onChange={(e) => setMaxPostLength(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                />
+                <span className="scanner-hint-text">
+                  * Bài viết của người tìm việc thật thường ngắn (dưới 30 từ). Bài viết dài nhiều hơn 30 từ chắc chắn là bản tin tuyển dụng / JD của bọn HR. Mặc định 30 từ để loại bỏ toàn bộ bài tuyển dụng dài của bọn HR.
+                </span>
               </div>
             </div>
           )}
