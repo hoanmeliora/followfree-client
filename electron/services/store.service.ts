@@ -388,7 +388,7 @@ export class StoreService {
       scanComments: true,
       maxPostAgeDays: 3,
       maxPostLength: 30,
-      intervalMinutes: 15,
+      intervalMinutes: 1,
       isRunning: false,
     }
     return { ...defaults, ...((this.store as any).get('scannerConfig') ?? {}) }

@@ -68,7 +68,7 @@ export function ScannerPage() {
   const [scanComments, setScanComments] = useState(true)
   const [maxPostAgeDays, setMaxPostAgeDays] = useState(3)
   const [maxPostLength, setMaxPostLength] = useState(30)
-  const [intervalMinutes, setIntervalMinutes] = useState(15)
+  const [intervalMinutes, setIntervalMinutes] = useState(1)
   const [recipient, setRecipient] = useState('')
   const [isRunning, setIsRunning] = useState(false)
   const [isScanning, setIsScanning] = useState(false)
@@ -264,25 +264,28 @@ export function ScannerPage() {
                 id="scanner-interval"
                 className="scanner-input"
                 type="number"
-                min={5}
+                min={1}
                 value={intervalMinutes}
                 disabled={isRunning}
-                onChange={(e) => setIntervalMinutes(Math.max(5, Number(e.target.value) || 15))}
+                onChange={(e) => setIntervalMinutes(Math.max(1, Number(e.target.value) || 1))}
               />
               <span className="scanner-hint-text">
-                * Chu kỳ quét lặp lại: {intervalMinutes} phút ({Math.floor(intervalMinutes / 60)} giờ {intervalMinutes % 60} phút).
+                * Chu kỳ quét lặp lại: {intervalMinutes} phút ({intervalMinutes >= 60 ? `${Math.floor(intervalMinutes / 60)} giờ ${intervalMinutes % 60} phút` : `${intervalMinutes} phút`}).
               </span>
 
-              <label className="scanner-label">Báo khách qua Messenger (link cá nhân, username/ID — để trống nếu không dùng)</label>
+              <label className="scanner-label">Báo khách qua Messenger (Link Nhóm chat Messenger hoặc link cá nhân / ID)</label>
               <input
                 id="scanner-recipient"
                 className="scanner-input"
                 type="text"
-                placeholder="https://www.facebook.com/ten.cua.ban"
+                placeholder="https://www.facebook.com/messages/t/123456789012345 (Link Nhóm chat hoặc cá nhân)"
                 value={recipient}
                 disabled={isRunning}
                 onChange={(e) => setRecipient(e.target.value)}
               />
+              <span className="scanner-hint-text">
+                * Dán link Nhóm chat Messenger (dạng facebook.com/messages/t/ID) để bot tự động gửi danh sách ứng viên vào nhóm chat ngay khi vừa tìm thấy.
+              </span>
             </div>
           )}
 

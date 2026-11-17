@@ -1,4 +1,4 @@
-import { BrowserContext, Page } from 'playwright'
+import { BrowserContext, Page, Locator } from 'playwright'
 import { createHash } from 'crypto'
 import { StoreService, ScannerConfig, ScrapedLead } from '../store.service'
 import { Ipv6Service } from '../ipv6.service'
@@ -8,12 +8,20 @@ type PushEvent = (channel: string, data: unknown) => void
 type ScannerAccount = ReturnType<StoreService['getAccounts']>[number]
 type CreateContext = (account: ScannerAccount, proxyUrl?: string) => Promise<{ context: BrowserContext; page: Page }>
 
+interface RawComment {
+  authorName: string
+  authorUrl?: string
+  content: string
+  postUrl: string
+}
+
 interface RawPost {
   authorName: string
   authorUrl: string
   content: string
   postUrl: string
   postTimeText?: string
+  comments?: RawComment[]
 }
 
 export function parsePostAgeDays(timeStr?: string, referenceDate: Date = new Date()): number | null {
@@ -58,7 +66,7 @@ export function parsePostAgeDays(timeStr?: string, referenceDate: Date = new Dat
   return null
 }
 
-const MIN_INTERVAL_MINUTES = 5
+const MIN_INTERVAL_MINUTES = 1
 const MAX_GROUPS = 50
 const TARGET_POSTS_PER_GROUP = 150
 const MAX_SCROLL_ROUNDS = 30
@@ -357,13 +365,12 @@ export function evaluatePostMatch(
 
     // Tự động lọc các bài viết quá dài (quy tắc: bản tin tuyển dụng dài của HR/đối thủ)
     const cleanWords = getCleanPostWords(content, authorName, groupName)
-    const maxWords = (config.maxPostLength && config.maxPostLength > 0) ? config.maxPostLength : 100
-    const lengthLimit = isCandidateSeeking ? Math.max(maxWords, 150) : maxWords
-    if (cleanWords.length > lengthLimit) {
+    const maxWords = (config.maxPostLength && config.maxPostLength > 0) ? config.maxPostLength : 30
+    if (cleanWords.length > maxWords) {
       return {
         matched: false,
         matchedKeywords: [],
-        rejectReason: `Bài viết nhiều hơn ${lengthLimit} từ (${cleanWords.length} từ - bản tin tuyển dụng của HR/đối thủ)`,
+        rejectReason: `Bài viết dài hơn ${maxWords} từ (${cleanWords.length} từ - bản tin tuyển dụng/JD dài của HR)`,
       }
     }
 
@@ -617,8 +624,13 @@ const MAX_LEADS_PER_DIGEST = 10
  * Returns the canonical Messenger thread URL, or null when the input is not a valid target.
  */
 export function normalizeRecipientInput(input: string): string | null {
-  const value = input.trim()
+  let value = input.trim()
   if (!value) return null
+
+  // Tự động bổ sung https:// nếu người dùng dán link dạng facebook.com/messages/t/... mà không gõ https://
+  if (!/^https?:\/\//i.test(value) && /(?:facebook\.com|messenger\.com|m\.me)/i.test(value)) {
+    value = `https://${value}`
+  }
 
   if (/^https?:\/\//i.test(value)) {
     let url: URL
@@ -627,14 +639,28 @@ export function normalizeRecipientInput(input: string): string | null {
     } catch {
       return null
     }
-    if (!/(^|\.)(facebook|messenger)\.com$/i.test(url.hostname)) return null
+    const host = url.hostname.toLowerCase()
+    const isFb = /(^|\.)(facebook|messenger)\.com$/i.test(host) || host === 'm.me'
+    if (!isFb) return null
 
-    const threadMatch = url.pathname.match(/\/(?:messages\/)?t\/([\w.-]+)/i)
+    // 1. Nhóm chat hoặc hội thoại Messenger: /messages/t/ID, /messages/e2ee/t/ID, /t/ID...
+    const threadMatch = url.pathname.match(/(?:\/messages)?(?:\/e2ee)?\/t\/([\w.-]+)/i)
     if (threadMatch) return `https://www.facebook.com/messages/t/${threadMatch[1]}`
 
+    // 2. Link m.me/ID hoặc m.me/j/ID hoặc m.me/ch/ID
+    if (host === 'm.me') {
+      const parts = url.pathname.split('/').filter(Boolean)
+      if (parts.length > 0) {
+        const id = parts[parts.length - 1]
+        return `https://www.facebook.com/messages/t/${id}`
+      }
+    }
+
+    // 3. Link profile.php?id=...
     const profileId = url.pathname === '/profile.php' ? url.searchParams.get('id') : null
     if (profileId && /^\d+$/.test(profileId)) return `https://www.facebook.com/messages/t/${profileId}`
 
+    // 4. Link username cá nhân
     const username = url.pathname.split('/').filter(Boolean)[0]
     if (username && !RESERVED_PROFILE_PATHS.has(username) && NUMERIC_OR_SLUG_PATTERN.test(username)) {
       return `https://www.facebook.com/messages/t/${username}`
@@ -655,9 +681,101 @@ export function normalizePostUrl(url: string): string {
   return url.split('?')[0].split('&')[0]
 }
 
+/**
+ * Kiểm tra xem URL có phải là link trực tiếp đến bài viết trong nhóm hay không.
+ * TUYỆT ĐỐI LOẠI TRỪ nếu chỉ là link nhóm thuần túy (/groups/<id>/ hoặc không có ID bài viết).
+ */
+export function isExactPostUrl(url?: string): boolean {
+  if (!url) return false
+  const trimmed = url.trim()
+  if (!trimmed) return false
+
+  // Loại trừ tuyệt đối nếu là link nhóm thuần túy (không có post/permalink/story ID)
+  if (/^https?:\/\/(?:www\.|m\.|web\.)?facebook\.com\/groups\/[^/?#]+\/?(?:[?#].*)?$/i.test(trimmed)) {
+    // Nếu có query param multi_permalinks, story_fbid thì vẫn coi là có ID bài viết
+    if (!/(?:multi_permalinks|story_fbid|fbid)=\d+/i.test(trimmed)) {
+      return false
+    }
+  }
+
+  // Bắt buộc phải có định dạng bài viết: /posts/<id>, /permalink/<id>, multi_permalinks, story_fbid
+  return /\/groups\/[^/]+\/(?:posts|permalink)\/\d+/i.test(trimmed) ||
+         /(?:story_fbid|multi_permalinks|fbid)=\d+/i.test(trimmed)
+}
+
 /** Các mẫu bình luận của HR/đối thủ (trả lời ứng viên hoặc cmt tuyển ké dạo) */
 export const HR_COMMENT_PATTERN =
   /\b(?:check\s*(?:ib|inbox)|da\s*(?:ib|inbox)|(?:ib|inbox|nhan\s*tin)\s*(?:minh|anh|chi|em)\s*(?:tu\s*van|nhe|nha|di|trao\s*doi)|lien\s*he\s*zalo|nhan\s*zalo|ben\s*(?:minh|anh|chi|em)\s*(?:dang|can)?\s*tuyen)\b/i
+
+/** Các mẫu bình luận xin việc đặc trưng của Ứng viên */
+export const CANDIDATE_COMMENT_PATTERNS = [
+  /\b(?:xin\s*slot|cho\s*e(?:m)?\s*(?:xin\s*)?(?:1\s*)?slot|e(?:m)?\s*xin\s*slot|xin\s*1\s*slot|xin\s*chan|xin\s*ve|cho\s*e(?:m)?\s*1\s*ve)\b/i,
+  /\b(?:con\s*tuyen\s*(?:khong|ko|k|hong|ạ)|còn\s*tuyển\s*(?:không|ko|k|ạ)|con\s*nhan\s*(?:khong|ko|k|ạ)|còn\s*nhận\s*(?:không|ko|k|ạ)|con\s*ca|còn\s*ca)\b/i,
+  /\b(?:inbox\s*e(?:m)?|ib\s*e(?:m)?|check\s*ib\s*e(?:m)?|rep\s*e(?:m)?|ib\s*minh|inbox\s*minh|check\s*tin\s*nhan)\b/i,
+  /\b(?:xin\s*info|xin\s*thong\s*tin|xin\s*jd|chi\s*tiet\s*cong\s*viec|cong\s*viec\s*the\s*nao)\b/i,
+  /\b(?:chua\s*du\s*18|chưa\s*đủ\s*18|\b1[67]\s*tuoi|\b1[67]t\b|nam\s*(?:duoc|nhan)\s*(?:ko|k|khong)|nu\s*(?:duoc|nhan)\s*(?:ko|k|khong)|2k[6789]\s*(?:nhan|duoc))\b/i,
+  /\b(?:xin\s*viec|xin\s*việc|tim\s*viec|tìm\s*việc|can\s*viec|cần\s*việc|xin\s*di\s*lam|xin\s*đi\s*làm|di\s*lam\s*ngay|đi\s*làm\s*ngay|nop\s*cv|nộp\s*cv|apply)\b/i,
+  /\b(?:thoi\s*vu|thời\s*vụ|ca\s*ngay|ca\s*dem|ca\s*đêm|co\s*coc\s*ko|có\s*cọc\s*không|ho\s*tro\s*an\s*o|hỗ\s*trợ\s*ăn\s*ở)\b/i,
+  /\b(?:quan\s*tam|cho\s*e(?:m)?\s*dang\s*ky|cho\s*em\s*đăng\s*ký)\b/i,
+]
+
+/**
+ * Đánh giá xem một bình luận có phải là của Ứng viên thật sự xin việc hay không
+ */
+export function evaluateCandidateComment(
+  content: string,
+  authorName?: string,
+  customKeywords?: string[]
+): { matched: boolean; matchedKeywords: string[] } {
+  const norm = normalizeText(content)
+  const teencode = normalizeTeencode(norm)
+
+  // 1. Bỏ qua nếu là HR/đối thủ phản hồi (check ib, đã ib, liên hệ zalo...)
+  if (HR_COMMENT_PATTERN.test(content) || HR_COMMENT_PATTERN.test(norm)) {
+    return { matched: false, matchedKeywords: [] }
+  }
+
+  // 2. Bỏ qua nếu tên tác giả cmt là HR/tuyển dụng
+  if (authorName && RECRUITER_AUTHOR_PATTERN.test(normalizeText(authorName))) {
+    return { matched: false, matchedKeywords: [] }
+  }
+
+  // 3. Bỏ qua nếu là hỏi giá mua hàng của shop (áo này bao nhiêu, freeship không, ib giá...)
+  const SHOP_INQUIRY_PATTERN = /\b(?:gia\s*bao\s*nhieu|bao\s*nhieu\s*tien|co\s*freeship|ship\s*ve|ib\s*gia|bao\s*tien|mua\s*hang|gia\s*sao)\b/i
+  if (SHOP_INQUIRY_PATTERN.test(norm)) {
+    return { matched: false, matchedKeywords: [] }
+  }
+
+  // 4. Kiểm tra các mẫu bình luận xin việc đặc trưng
+  const matchedKeywords: string[] = []
+  for (const pattern of CANDIDATE_COMMENT_PATTERNS) {
+    const m = norm.match(pattern) || teencode.match(pattern)
+    if (m) {
+      matchedKeywords.push(m[0])
+    }
+  }
+
+  // 5. Kiểm tra từ khóa bình luận người dùng cài đặt riêng (nếu có)
+  if (customKeywords && customKeywords.length > 0) {
+    for (const kw of customKeywords) {
+      const nkw = normalizeText(kw.trim())
+      if (nkw && (norm.includes(nkw) || teencode.includes(nkw))) {
+        matchedKeywords.push(kw.trim())
+      }
+    }
+  }
+
+  // 6. Kiểm tra số điện thoại / Zalo kèm ngữ cảnh xin việc (VD: "e 0987...", "zalo 0987...")
+  if (/(?:zalo|sdt|lh|lien\s*he|e|em)?\s*:?\s*(?:0\d{9})\b/i.test(content)) {
+    matchedKeywords.push('Để lại SĐT/Zalo xin việc')
+  }
+
+  if (matchedKeywords.length > 0) {
+    return { matched: true, matchedKeywords: Array.from(new Set(matchedKeywords)) }
+  }
+
+  return { matched: false, matchedKeywords: [] }
+}
 
 export class ScannerService {
   private timer: NodeJS.Timeout | null = null
@@ -708,10 +826,10 @@ export class ScannerService {
     const rawRecipient = (input.notifyRecipient ?? '').trim()
     const notifyRecipient = rawRecipient ? normalizeRecipientInput(rawRecipient) : ''
     if (rawRecipient && !notifyRecipient) {
-      return { success: false, error: 'Người nhận thông báo không hợp lệ (dán link trang cá nhân Facebook, username hoặc ID)' }
+      return { success: false, error: 'Người nhận thông báo không hợp lệ (dán link Nhóm chat Messenger, trang cá nhân, username hoặc ID)' }
     }
 
-    const intervalMinutes = Math.max(MIN_INTERVAL_MINUTES, Math.floor(Number(input.intervalMinutes) || 15))
+    const intervalMinutes = Math.max(MIN_INTERVAL_MINUTES, Math.floor(Number(input.intervalMinutes) || 1))
     const maxPostAgeDays = Math.max(1, Math.min(30, Math.floor(Number(input.maxPostAgeDays) || 3)))
     const maxPostLength = Math.max(0, Math.floor(Number(input.maxPostLength) || 0))
     this.store.updateScannerConfig({
@@ -796,6 +914,10 @@ export class ScannerService {
       this.cycleInProgress = false
       this.currentContext = null
       this.emitStatus()
+      if (this.isRunning()) {
+        const mins = this.store.getScannerConfig().intervalMinutes
+        this.log(`⏳ Nghỉ ${mins} phút để thu hồi RAM & tránh checkpoint Facebook, sau đó sẽ tự động vào quét lượt tiếp theo...`)
+      }
       this.scheduleNext(intervalMs)
     }
   }
@@ -946,6 +1068,17 @@ export class ScannerService {
           newLeads += result.newLeads.length
           totalPostsRead += result.postsRead
           groupsScanned++
+
+          // BÁO NGAY VÀO NHÓM CHAT MESSENGER KHI TÌM ĐƯỢC KHÁCH MỚI Ở NHÓM NÀY:
+          if (result.newLeads.length > 0 && config.notifyRecipient && this.isRunning() && !browserClosedExternally) {
+            try {
+              const currentGroupName = (await page.title()).replace(/\s*\|\s*Facebook.*$/i, '').trim() || groupUrl
+              await this.sendDigest(page, config.notifyRecipient, result.newLeads, currentGroupName)
+              this.log(`📨 Đã gửi ngay ${result.newLeads.length} khách mới từ nhóm này vào Nhóm chat Messenger`)
+            } catch (err) {
+              this.log(`⚠️ Chưa gửi được tin nhắn báo khách vào nhóm chat: ${(err as Error).message}`)
+            }
+          }
         } catch (err) {
           if ((err as Error).message === 'SESSION_EXPIRED') {
             this.log(`🚨 Tài khoản ${account.username} hết phiên đăng nhập/bị yêu cầu xác minh -> đánh dấu CHECKPOINT`)
@@ -955,15 +1088,6 @@ export class ScannerService {
           this.log(`⚠️ Bỏ qua nhóm ${groupUrl}: ${(err as Error).message}`)
         }
         await sleep(randomBetween(5000, 12000))
-      }
-
-      if (this.isRunning() && !browserClosedExternally && cycleLeads.length > 0 && config.notifyRecipient) {
-        try {
-          await this.sendDigest(page, config.notifyRecipient, cycleLeads)
-          this.log(`📨 Đã nhắn Messenger báo ${cycleLeads.length} khách mới`)
-        } catch (err) {
-          this.log(`⚠️ Không gửi được tin nhắn báo khách: ${(err as Error).message}`)
-        }
       }
 
       if (this.isRunning() && !browserClosedExternally) {
@@ -1026,8 +1150,8 @@ export class ScannerService {
             }
             try { dialog.remove() } catch { }
           }
-          if (document.body) document.body.style.overflow = 'auto'
-          if (document.documentElement) document.documentElement.style.overflow = 'auto'
+          if (document.body && document.body.style.overflow === 'hidden') document.body.style.overflow = ''
+          if (document.documentElement && document.documentElement.style.overflow === 'hidden') document.documentElement.style.overflow = ''
         })
         await sleep(100)
       } catch (err) { }
@@ -1051,16 +1175,10 @@ export class ScannerService {
           : [...(config.keywords || []), ...defaultCandidateCommentKws]
 
         for (const comment of comments) {
-          // Bỏ qua bình luận của HR/đối thủ (Check ib, Đã ib, Ib mình tư vấn, Bên mình đang tuyển...)
-          const normCmt = normalizeText(comment.content)
-          if (HR_COMMENT_PATTERN.test(normCmt)) {
-            continue
-          }
-
-          const evalCmt = evaluatePostMatch(
+          const evalCmt = evaluateCandidateComment(
             comment.content,
-            { ...config, keywords: commentFilterKws },
             comment.authorName,
+            config.commentKeywords,
           )
           if (evalCmt.matched && evalCmt.matchedKeywords.length > 0) {
             const cleanUrl = normalizePostUrl(comment.postUrl)
@@ -1083,6 +1201,11 @@ export class ScannerService {
 
       // Quét và lọc bài viết ngay lập tức trong từng lượt cuộn (Real-time Stream)
       for (const post of posts) {
+        // KIỂM TRA BẮT BUỘC: PHẢI CÓ LINK BÀI VIẾT CHÍNH XÁC, TUYỆT ĐỐI KHÔNG LẤY MỖI LINK NHÓM
+        if (!isExactPostUrl(post.postUrl)) {
+          continue
+        }
+
         const id = this.buildLeadId(post)
         if (!collected.has(id)) {
           collected.set(id, post)
@@ -1097,8 +1220,11 @@ export class ScannerService {
 
           const isAlreadyScraped = existingLeads.some(l => {
             if (l.id === id) return true
-            if (l.postUrl && post.postUrl && l.postUrl.split('?')[0] === post.postUrl.split('?')[0] && !l.postUrl.endsWith('/groups/')) {
-              return true
+            // Chỉ kiểm tra trùng URL đối với bài viết gốc, không áp dụng cho các lead từ cmt
+            if (!l.id.startsWith('fb_cmt_') && !id.startsWith('fb_cmt_')) {
+              if (l.postUrl && post.postUrl && l.postUrl.split('?')[0] === post.postUrl.split('?')[0] && !l.postUrl.endsWith('/groups/')) {
+                return true
+              }
             }
             const lNormAuthor = normalizeText(l.authorName || '')
             const lNormContent = normalizeText(l.content || '')
@@ -1126,26 +1252,49 @@ export class ScannerService {
             consecutiveOldPosts = 0
           }
 
-          const candidateCmts = matchedCommentsByPostUrl.get(cleanUrl)
+          // Thu thập ứng viên cmt từ cả post.comments (trực tiếp dưới bài) và matchedCommentsByPostUrl (từ feed stream)
+          const postCandidateComments: Array<{ authorName: string; authorUrl?: string; content: string; matchedKeywords: string[] }> = []
+
+          if (post.comments && post.comments.length > 0) {
+            for (const cmt of post.comments) {
+              const evalCmt = evaluateCandidateComment(cmt.content, cmt.authorName, config.commentKeywords)
+              if (evalCmt.matched && evalCmt.matchedKeywords.length > 0) {
+                postCandidateComments.push({
+                  authorName: cmt.authorName,
+                  authorUrl: cmt.authorUrl,
+                  content: cmt.content,
+                  matchedKeywords: evalCmt.matchedKeywords,
+                })
+              }
+            }
+          }
+
+          const streamCmts = matchedCommentsByPostUrl.get(cleanUrl) || []
+          for (const sc of streamCmts) {
+            if (!postCandidateComments.some(c => c.authorName === sc.authorName && c.content === sc.content)) {
+              postCandidateComments.push(sc)
+            }
+          }
+
           const evalResult = evaluatePostMatch(post.content, config, post.authorName, groupName)
 
-          // NẾU BÀI VIẾT KHỚP (ĐÃ LỌC SẠCH HR & KHÔNG QUÁ 30 TỪ):
+          // NẾU BÀI VIẾT KHỚP (ĐÃ LỌC SẠCH HR & KHÔNG QUÁ SỐ TỪ QUY ĐỊNH):
           // Lưu bài viết đó vào danh sách khách hàng tiềm năng
           if (evalResult.matched) {
             let finalContent = post.content.slice(0, 2000)
             const allKeywords = [...evalResult.matchedKeywords]
 
-            if (candidateCmts && candidateCmts.length > 0) {
-              allKeywords.unshift(`Có ${candidateCmts.length} cmt xin việc`)
-              const cmtSummary = candidateCmts.map((c) => `• ${c.authorName}: "${c.content}"`).join('\n')
-              finalContent = `${finalContent}\n\n💬 ỨNG VIÊN BÌNH LUẬN XIN VIỆC (${candidateCmts.length}):\n${cmtSummary}`.slice(0, 3000)
+            if (postCandidateComments.length > 0) {
+              allKeywords.unshift(`Có ${postCandidateComments.length} cmt xin việc`)
+              const cmtSummary = postCandidateComments.map((c) => `• ${c.authorName}: "${c.content}"`).join('\n')
+              finalContent = `${finalContent}\n\n💬 ỨNG VIÊN BÌNH LUẬN XIN VIỆC (${postCandidateComments.length}):\n${cmtSummary}`.slice(0, 3000)
             }
 
             const lead: ScrapedLead = {
               id,
               groupName,
-              authorName: candidateCmts && candidateCmts.length > 0
-                ? `📌 ${post.authorName} (${candidateCmts.length} cmt xin việc)`
+              authorName: postCandidateComments.length > 0
+                ? `📌 ${post.authorName} (${postCandidateComments.length} cmt xin việc)`
                 : post.authorName,
               authorUrl: post.authorUrl || undefined,
               content: finalContent,
@@ -1159,31 +1308,28 @@ export class ScannerService {
             if (this.store.addLead(lead)) {
               newLeads.push(lead)
               this.pushEvent('scanner:new_lead', lead)
-              if (candidateCmts && candidateCmts.length > 0) {
-                this.log(`🎯 [Bắt bài viết có cmt xin việc]: "${post.authorName}" (${candidateCmts.length} ứng viên cmt)`)
+              if (postCandidateComments.length > 0) {
+                this.log(`🎯 [Bắt bài viết có cmt xin việc]: "${post.authorName}" (${postCandidateComments.length} ứng viên cmt)`)
               } else {
                 this.log(`🎯 Khách mới: ${lead.authorName} (${evalResult.matchedKeywords.join(', ')})`)
               }
             }
-          } else if (candidateCmts && candidateCmts.length > 0) {
-            // NẾU BÀI VIẾT LÀ BÀI ĐĂNG TUYỂN DỤNG CỦA HR/CÔNG TY:
-            // Chỉ giữ lại các bình luận của Ứng viên thật sự xin việc bên dưới bài đăng tuyển dụng đó.
-            // Nếu bài viết gốc là BÀI BÁN HÀNG CỦA SHOP (bánh kem, quần áo, sim, đồ gia dụng, BĐS):
-            // TUYỆT ĐỐI BỎ QUA 100% VÌ ĐÓ LÀ KHÁCH HỎI MUA HÀNG, KHÔNG PHẢI ỨNG VIÊN XIN VIỆC!
+          } else if (postCandidateComments.length > 0) {
+            // NẾU BÀI VIẾT LÀ BÀI DÀI / BẢN TIN TUYỂN DỤNG CỦA HR:
+            // BỎ QUA NGƯỜI ĐĂNG BÀI (HR), NHƯNG GIỮ LẠI TẤT CẢ ỨNG VIÊN BÌNH LUẬN XIN VIỆC BÊN DƯỚI!
             const reason = evalResult.rejectReason || ''
-            const isRecruiterPost = reason.includes('HR') || reason.includes('tuyển dụng') || reason.includes('Nhà tuyển dụng') || reason.includes('JD') || reason.includes('bản tin')
-            const isSellerOrSpamPost = reason.includes('bán hàng') || reason.includes('shop') || reason.includes('quảng cáo') || reason.includes('xã hội') || reason.includes('liệt sĩ')
+            const isSellerOrSpamPost = reason.includes('bán hàng') || reason.includes('shop') || reason.includes('xã hội') || reason.includes('liệt sĩ')
 
-            if (isRecruiterPost && !isSellerOrSpamPost) {
-              this.log(`🛡️ [Né bài HR/Cửa hàng] "${post.authorName}": ${evalResult.rejectReason}. Giữ lại ${candidateCmts.length} ứng viên cmt xin việc bên dưới.`)
-              for (const cmt of candidateCmts) {
+            if (!isSellerOrSpamPost) {
+              this.log(`🛡️ [Bỏ qua bài HR dài] "${post.authorName}": ${evalResult.rejectReason}. Giữ lại ${postCandidateComments.length} ứng viên cmt xin việc bên dưới.`)
+              for (const cmt of postCandidateComments) {
                 const cmtLeadId = `fb_cmt_${createHash('sha1').update(`${cleanUrl}_${cmt.authorName}_${cmt.content}`).digest('hex').slice(0, 16)}`
                 const cmtLead: ScrapedLead = {
                   id: cmtLeadId,
                   groupName,
                   authorName: `💬 ${cmt.authorName}`,
                   authorUrl: cmt.authorUrl || undefined,
-                  content: `[Ứng viên bình luận xin việc]: "${cmt.content}"\n\n📌 Bài viết gốc: ${post.postUrl}`,
+                  content: `[Ứng viên bình luận xin việc]: "${cmt.content}"\n\n📌 Bài viết gốc của HR: ${post.postUrl}`,
                   postUrl: post.postUrl,
                   postTimeText: post.postTimeText,
                   matchedKeywords: ['Ứng viên bình luận xin việc', ...cmt.matchedKeywords],
@@ -1193,11 +1339,11 @@ export class ScannerService {
                 if (this.store.addLead(cmtLead)) {
                   newLeads.push(cmtLead)
                   this.pushEvent('scanner:new_lead', cmtLead)
-                  this.log(`🎯 [Bắt ứng viên từ cmt]: "${cmt.authorName}" - "${cmt.content.slice(0, 50)}"`)
+                  this.log(`🎯 [Bắt ứng viên từ cmt bài HR]: "${cmt.authorName}" - "${cmt.content.slice(0, 50)}"`)
                 }
               }
             } else {
-              this.log(`🛡️ [Né bài bán hàng/quảng cáo] "${post.authorName}": ${evalResult.rejectReason} (Bỏ qua toàn bộ cmt hỏi mua hàng)`)
+              this.log(`🛡️ [Né bài bán hàng/quảng cáo] "${post.authorName}": ${evalResult.rejectReason}`)
             }
           } else if (evalResult.rejectReason) {
             this.log(`🛡️ [Né bài] "${post.authorName}": ${evalResult.rejectReason}`)
@@ -1207,6 +1353,7 @@ export class ScannerService {
 
       // Xử lý các bình luận xin việc ở các bài chưa kịp nạp postCards
       for (const [pUrl, cmts] of matchedCommentsByPostUrl.entries()) {
+        if (!isExactPostUrl(pUrl)) continue
         if (!processedPostUrls.has(pUrl) && cmts.length > 0) {
           for (const cmt of cmts) {
             const fallbackCmtId = `fb_cmt_${createHash('sha1').update(`${pUrl}_${cmt.authorName}_${cmt.content}`).digest('hex').slice(0, 16)}`
@@ -1263,7 +1410,7 @@ export class ScannerService {
       await page.mouse.move(650, 450).catch(() => { })
       await page.mouse.wheel(0, scrollAmount)
 
-      // 3. Cuộn trang kết hợp DOM: cuộn window, body và đưa bài viết cuối cùng vào tầm nhìn
+      // 3. Cuộn trang kết hợp DOM: Cuộn mượt và giải phóng khóa cuộn
       await page.evaluate((amount) => {
         // Gỡ bỏ triệt để Dialog nếu có để giải phóng lớp overlay chặn cuộn màn hình
         const dialogs = Array.from(document.querySelectorAll('div[role="dialog"], div[aria-modal="true"]')) as HTMLElement[]
@@ -1274,21 +1421,10 @@ export class ScannerService {
           }
           try { dialog.remove() } catch { }
         }
-        if (document.body) document.body.style.overflow = 'auto'
-        if (document.documentElement) document.documentElement.style.overflow = 'auto'
+        if (document.body && document.body.style.overflow === 'hidden') document.body.style.overflow = ''
+        if (document.documentElement && document.documentElement.style.overflow === 'hidden') document.documentElement.style.overflow = ''
 
-        window.scrollBy(0, amount)
-        if (document.documentElement) document.documentElement.scrollTop += amount
-        if (document.scrollingElement) document.scrollingElement.scrollTop += amount
-
-        // Đưa thẻ bài viết cuối cùng hiện tại vào tầm nhìn để kích hoạt Facebook nạp bài tiếp theo
-        const articles = document.querySelectorAll('div[role="feed"] > div, div[role="article"], div[aria-posinset]')
-        if (articles.length > 0) {
-          const lastArticle = articles[articles.length - 1] as HTMLElement
-          try {
-            lastArticle.scrollIntoView({ behavior: 'smooth', block: 'end' })
-          } catch { }
-        }
+        window.scrollBy({ top: amount, behavior: 'smooth' })
 
         // Kết thúc nhịp cuộn của bot
         const w = window as any;
@@ -1412,8 +1548,25 @@ export class ScannerService {
 
     this.log(`⏸ Phát hiện bạn đang thao tác trên màn hình -> Tạm dừng quét 30s để bạn xem bài viết...`)
 
+    // KHI TẠM DỪNG:
+    // 1. Dừng ngay lập tức mọi hiệu ứng cuộn dở dang
+    // 2. Khôi phục hoàn toàn CSS mặc định cho body và html để người dùng vuốt lên/xuống tự do
+    await page.evaluate(() => {
+      try {
+        window.scrollTo({ top: window.scrollY, behavior: 'instant' as any })
+        if (document.body) {
+          document.body.style.overflow = ''
+          document.body.style.pointerEvents = 'auto'
+        }
+        if (document.documentElement) {
+          document.documentElement.style.overflow = ''
+          document.documentElement.style.pointerEvents = 'auto'
+        }
+      } catch { }
+    }).catch(() => { })
+
     while (remaining > 0 && this.isRunning() && !page.isClosed()) {
-      await sleep(1000)
+      await sleep(500)
       remaining = await getRemaining()
     }
 
@@ -1477,12 +1630,15 @@ export class ScannerService {
           // 2. Bỏ qua các phím hệ thống bot có thể bấm (Escape, PageDown, PageUp)
           if (e && e.type === 'keydown' && ['Escape', 'PageDown', 'PageUp'].includes(e.key)) return
 
-          // 3. Nếu bot đang trong nhịp cuộn tự động -> bỏ qua sự kiện wheel
-          if ((window as any).__agy_bot_scrolling) return
-
-          // 4. Nếu cách thời điểm bot vừa chạy lệnh chưa đầy 1.5 giây -> bỏ qua
-          const lastBotAct = (window as any).__agy_bot_acting || 0
-          if (Date.now() - lastBotAct < 1500) return
+          // 3. Nếu là sự kiện wheel do bot đang phát lệnh cuộn xuống -> bỏ qua
+          if ((window as any).__agy_bot_scrolling) {
+            // Nhưng nếu người dùng chủ động lăn chuột NGƯỢC LÊN TRÊN (deltaY < 0), chắc chắn là người dùng!
+            if (e && e.type === 'wheel' && e.deltaY < 0) {
+              // Người dùng vuốt lên trên -> cho phép nhận diện ngay!
+            } else {
+              return
+            }
+          }
 
           // Xác nhận: Đúng là người dùng thao tác vào màn hình trình duyệt!
           (window as any).__agy_user_paused_until = Date.now() + 30000
@@ -1507,32 +1663,88 @@ export class ScannerService {
     }
   }
 
-  /** Sends ONE summary message per cycle (never one message per lead) to avoid Messenger spam flags. */
-  private async sendDigest(page: Page, recipientUrl: string, leads: ScrapedLead[]): Promise<boolean> {
-    const shown = leads.slice(0, MAX_LEADS_PER_DIGEST)
-    const lines: string[] = [`🎯 Có ${leads.length} khách mới từ FollowFree:`]
+  /** Gửi tin nhắn danh sách bài viết mới vào Nhóm chat Messenger hoặc Inbox cá nhân */
+  private async sendDigest(page: Page, recipientUrl: string, leads: ScrapedLead[], fromGroupName?: string): Promise<boolean> {
+    // CHỈ GỬI CÁC BÀI VIẾT CÓ LINK CHUẨN XÁC VÀO BÀI VIẾT TRONG NHÓM
+    // TUYỆT ĐỐI KHÔNG GỬI MỖI LINK NHÓM!
+    const validLeads = leads.filter(l => isExactPostUrl(l.postUrl))
+    if (validLeads.length === 0) {
+      this.log(`ℹ️ Không có bài viết nào có link bài viết chính xác để gửi vào nhóm chat Messenger`)
+      return false
+    }
+
+    this.log(`💬 Đang mở cuộc trò chuyện Messenger để gửi ${validLeads.length} bài viết mới...`)
+
+    const shown = validLeads.slice(0, MAX_LEADS_PER_DIGEST)
+    const title = fromGroupName ? `🎯 [${fromGroupName}] Có ${validLeads.length} bài viết mới:` : `🎯 Có ${validLeads.length} bài viết mới từ FollowFree:`
+    const lines: string[] = [title]
     shown.forEach((lead, index) => {
-      const snippet = lead.content.replace(/\s+/g, ' ').slice(0, 120)
+      const snippet = lead.content.replace(/\s+/g, ' ').slice(0, 140)
       lines.push('', `${index + 1}. ${lead.authorName} (${lead.matchedKeywords.join(', ')})`, `"${snippet}"`, lead.postUrl)
     })
-    if (leads.length > shown.length) lines.push('', `... và ${leads.length - shown.length} khách khác trong app`)
+    if (validLeads.length > shown.length) lines.push('', `... và ${validLeads.length - shown.length} khách khác trong app`)
 
-    // ĐẢM BẢO Ở TƯ CÁCH CÁ NHÂN: Fanpage không có quyền gửi tin nhắn cho profile cá nhân
-    await this.ensurePersonalProfile(page)
-
+    // Mở trực tiếp URL cuộc trò chuyện Messenger
     await page.goto(recipientUrl, { waitUntil: 'domcontentloaded', timeout: 45000 })
-    const textbox = page.locator('div[role="textbox"][contenteditable="true"]').last()
-    await textbox.waitFor({ state: 'visible', timeout: 25000 })
-    await sleep(randomBetween(1500, 3000))
-    await textbox.click()
+    await sleep(randomBetween(2500, 4000))
+
+    // Tự động đóng modal, popup nếu có trên Messenger (E2EE notice, Not Now, etc.)
+    await page.keyboard.press('Escape').catch(() => { })
+    await sleep(500)
+    await page.keyboard.press('Escape').catch(() => { })
+
+    // Đóng các popup thông báo hoặc cookie nếu có
+    const dismissButtons = page.locator('button:has-text("Đã hiểu"), button:has-text("Để sau"), button:has-text("Lúc khác"), button:has-text("Không phải bây giờ"), [aria-label="Đóng" i]')
+    if ((await dismissButtons.count().catch(() => 0)) > 0) {
+      await dismissButtons.first().click().catch(() => { })
+    }
+
+    // Tìm ô nhập tin nhắn Messenger (loại trừ ô tìm kiếm hội thoại)
+    const textboxCandidates = [
+      'div[role="textbox"][contenteditable="true"][aria-label*="tin nhắn" i]',
+      'div[role="textbox"][contenteditable="true"][aria-label*="message" i]',
+      'div[data-lexical-editor="true"][role="textbox"]',
+      'div[role="textbox"][contenteditable="true"]:not([aria-label*="tìm kiếm" i]):not([placeholder*="tìm kiếm" i]):not([aria-label*="search" i])',
+      'div[aria-label*="Tin nhắn" i][contenteditable="true"]',
+      'div[aria-label*="Message" i][contenteditable="true"]',
+      'div[role="textbox"][contenteditable="true"]',
+    ]
+
+    let textbox: Locator | null = null
+    for (const sel of textboxCandidates) {
+      const loc = page.locator(sel).last()
+      if (await loc.isVisible().catch(() => false)) {
+        textbox = loc
+        break
+      }
+    }
+
+    if (!textbox) {
+      textbox = page.locator('div[role="textbox"][contenteditable="true"]').last()
+      await textbox.waitFor({ state: 'visible', timeout: 25000 })
+    }
+
+    await sleep(randomBetween(1000, 2000))
+    await textbox?.click()
+    await sleep(500)
 
     for (let i = 0; i < lines.length; i++) {
       if (i > 0) await page.keyboard.press('Shift+Enter')
       if (lines[i]) await page.keyboard.insertText(lines[i])
     }
-    await sleep(randomBetween(800, 1500))
+    await sleep(randomBetween(1000, 1800))
     await page.keyboard.press('Enter')
-    await sleep(randomBetween(2000, 3500))
+    await sleep(1500)
+
+    // Fallback: Nếu phím Enter chưa gửi đi, thử bấm nút Gửi (Send icon)
+    const sendBtn = page.locator('div[aria-label="Nhấn Enter để gửi" i], div[aria-label*="Gửi" i][role="button"], div[aria-label*="Send" i][role="button"]').last()
+    if (await sendBtn.isVisible().catch(() => false)) {
+      await sendBtn.click().catch(() => { })
+      await sleep(1500)
+    }
+
+    await sleep(randomBetween(2000, 3000))
+    this.log(`✅ Đã gửi thành công ${validLeads.length} link bài viết vào nhóm chat Messenger!`)
     return true
   }
 
@@ -1549,37 +1761,37 @@ export class ScannerService {
     return page.evaluate((): RawPost[] => {
       const results: RawPost[] = []
 
+      // Lấy group slug từ URL trang hiện tại để tái tạo link chính xác
+      const currentUrl = window.location.href
+      const gMatch = currentUrl.match(/groups\/([^/?#]+)/i)
+      const currentGroupSlug = gMatch ? gMatch[1] : ''
+
       const postCards = Array.from(document.querySelectorAll('div[role="article"], div[aria-posinset]')) as HTMLElement[]
 
       postCards.forEach((postCard) => {
         // Bỏ qua các thẻ nằm lồng bên trong thẻ article khác (bài viết được chia sẻ)
         if (postCard.parentElement?.closest('div[role="article"]')) return
 
-        // 1. Bóc tách nội dung văn bản thực tế của bài viết (bỏ qua rác header nhóm, tác giả, nút like/share)
+        // 1. Bóc tách nội dung văn bản thực tế của bài viết
         let postText = ''
         const cometMsg = postCard.querySelector('div[data-ad-preview="message"], div[data-ad-comet-preview="message"]') as HTMLElement | null
         if (cometMsg) {
           postText = (cometMsg.innerText || cometMsg.textContent || '').trim()
         }
 
-        // Fallback: Nếu không có data-ad-preview (bài nền màu hoặc layout mới của Facebook)
         if (!postText) {
           const bodyCandidates = Array.from(postCard.querySelectorAll('div[dir="auto"], span[dir="auto"]')) as HTMLElement[]
           const chunks: string[] = []
           for (const el of bodyCandidates) {
-            // Bỏ qua nếu nằm trong danh sách bình luận (ul, ol) hoặc form nhập cmt
             if (el.closest('ul') || el.closest('ol') || el.closest('form')) continue
             const t = (el.innerText || el.textContent || '').trim()
             if (!t) continue
-            // Bỏ qua các nhãn nút tương tác của Facebook
             if (/^(?:thích|bình luận|chia sẻ|gửi|vừa xong|theo dõi|tham gia|\d+\s*(?:giờ|ngày|phút|tháng|năm|h|d|m|tiếng))/i.test(t)) continue
             if (!chunks.includes(t)) chunks.push(t)
           }
           postText = chunks.join('\n').trim()
         }
 
-        // NẾU BÀI VIẾT KHÔNG CÓ NỘI DUNG CHỮ THỰC TẾ (CHỈ ĐĂNG MỖI ẢNH / TỜ RƠI):
-        // BỎ QUA NGAY LẬP TỨC!
         const cleanContent = postText.replace(/(Facebook\s*){3,}/gi, ' ').trim()
         if (cleanContent.length < 2) return
 
@@ -1589,46 +1801,91 @@ export class ScannerService {
         let authorName = 'Thành viên nhóm'
         let authorUrl = ''
 
-        // Tìm link bài viết chuẩn xác (bắt buộc phải có ID bài viết hoặc permalink)
-        let postLink = allLinks.find(a =>
-          /\/groups\/[^/]+\/(posts|permalink)\/\d+/.test(a.href) && !a.href.includes('comment_id')
-        )
-
-        if (!postLink) {
-          postLink = allLinks.find(a => a.href.includes('multi_permalinks=') || a.href.includes('story_fbid='))
+        // --- TRÍCH XUẤT LINK BÀI VIẾT CHÍNH XÁC (TUYỆT ĐỐI KHÔNG LẤY MỖI LINK NHÓM) ---
+        // 1. Quét tất cả thẻ a có chứa cấu trúc /groups/<slug>/(posts|permalink)/<id>
+        for (const a of allLinks) {
+          const m = a.href.match(/(https:\/\/[^/]+\/groups\/[^/]+\/(?:posts|permalink)\/\d+)/i)
+          if (m) {
+            postUrl = m[1]
+            break
+          }
         }
 
-        if (postLink) {
-          const cleanUrlMatch = postLink.href.match(/(https:\/\/[^/]+\/groups\/[^/]+\/(?:posts|permalink)\/\d+)/)
-          postUrl = cleanUrlMatch ? cleanUrlMatch[1] : postLink.href.split('&')[0].split('?')[0]
-        } else {
-          // Fallback 1: Thử lấy link từ nút "Bình luận" (chứa đường dẫn gốc của bài)
-          const commentLink = allLinks.find(a => (a.href.includes('comment_id') || a.innerText.toLowerCase().includes('bình luận') || a.innerText.toLowerCase().includes('comment')) && /\/groups\/[^/]+\/(posts|permalink)\/\d+/.test(a.href))
-          if (commentLink) {
-            const m = commentLink.href.match(/(https:\/\/[^/]+\/groups\/[^/]+\/(?:posts|permalink)\/\d+)/)
-            if (m) postUrl = m[1]
-          }
-
-          // Fallback 2: Link ở mốc thời gian bài viết (thường chứa link bài gốc)
-          if (!postUrl) {
-            const timeLink = allLinks.find(a =>
-              (a.href.includes('/posts/') || a.href.includes('/permalink/')) &&
-              !a.href.includes('/user/') &&
-              !a.href.includes('/hashtag/')
-            )
-            if (timeLink) {
-              const m = timeLink.href.match(/(https:\/\/[^/]+\/groups\/[^/]+\/(?:posts|permalink)\/\d+)/)
-              if (m) postUrl = m[1]
+        // 2. Quét href tương đối
+        if (!postUrl && currentGroupSlug) {
+          for (const a of allLinks) {
+            const rawHref = a.getAttribute('href') || ''
+            const m = rawHref.match(/(?:\/groups\/[^/]+)?\/(?:posts|permalink)\/(\d+)/i)
+            if (m) {
+              postUrl = `https://www.facebook.com/groups/${currentGroupSlug}/posts/${m[1]}`
+              break
             }
           }
+        }
 
-          // Fallback 3: Kiểm tra các link có chứa query parameter ID bài viết
-          if (!postUrl) {
-            const storyLink = allLinks.find(a => a.href.includes('story_fbid=') || a.href.includes('fbid='))
-            if (storyLink) {
-              postUrl = storyLink.href
+        // 3. Link multi_permalinks=...
+        if (!postUrl && currentGroupSlug) {
+          for (const a of allLinks) {
+            const m = a.href.match(/multi_permalinks=(\d+)/i)
+            if (m) {
+              postUrl = `https://www.facebook.com/groups/${currentGroupSlug}/posts/${m[1]}`
+              break
             }
           }
+        }
+
+        // 4. Link ảnh đính kèm bài viết nhóm (có dạng set=gm.<post_id>)
+        if (!postUrl && currentGroupSlug) {
+          for (const a of allLinks) {
+            const m = a.href.match(/[?&]set=gm\.(\d+)/i)
+            if (m) {
+              postUrl = `https://www.facebook.com/groups/${currentGroupSlug}/posts/${m[1]}`
+              break
+            }
+          }
+        }
+
+        // 5. Link story_fbid hoặc fbid
+        if (!postUrl) {
+          for (const a of allLinks) {
+            const m = a.href.match(/[?&](?:story_fbid|fbid)=(\d+)/i)
+            if (m) {
+              if (currentGroupSlug) {
+                postUrl = `https://www.facebook.com/groups/${currentGroupSlug}/posts/${m[1]}`
+              } else {
+                postUrl = `https://www.facebook.com/permalink.php?story_fbid=${m[1]}`
+              }
+              break
+            }
+          }
+        }
+
+        // 6. Input hidden ft_ent_identifier
+        if (!postUrl && currentGroupSlug) {
+          const hiddenIdInput = postCard.querySelector('input[name="ft_ent_identifier"]') as HTMLInputElement | null
+          if (hiddenIdInput?.value && /^\d+$/.test(hiddenIdInput.value)) {
+            postUrl = `https://www.facebook.com/groups/${currentGroupSlug}/posts/${hiddenIdInput.value}`
+          }
+        }
+
+        // 7. Thuộc tính data-ft
+        if (!postUrl && currentGroupSlug) {
+          const ftElements = Array.from(postCard.querySelectorAll('[data-ft]'))
+          if (postCard.hasAttribute('data-ft')) ftElements.unshift(postCard)
+          for (const el of ftElements) {
+            const val = el.getAttribute('data-ft') || ''
+            const idMatch = val.match(/"(?:top_level_post_id|mf_story_key)":"(\d+)"/)
+            if (idMatch) {
+              postUrl = `https://www.facebook.com/groups/${currentGroupSlug}/posts/${idMatch[1]}`
+              break
+            }
+          }
+        }
+
+        // NẾU VẪN KHÔNG TÌM THẤY ID BÀI VIẾT:
+        // TUYỆT ĐỐI KHÔNG FALLBACK VỀ LINK NHÓM! BỎ QUA HOÀN TOÀN!
+        if (!postUrl) {
+          return
         }
 
         // Tìm tác giả
@@ -1652,16 +1909,11 @@ export class ScannerService {
 
         // Tìm thời gian đăng bài
         let postTimeText = ''
-        if (postLink) {
-          postTimeText = (postLink.getAttribute('aria-label') || postLink.innerText || '').trim()
-        }
-        if (!postTimeText) {
-          const timeCandidate = allLinks.find(a =>
-            /ngày|giờ|phút|hôm qua|tháng|vừa xong|mins?|hrs?|yesterday|just now/i.test(a.innerText || a.getAttribute('aria-label') || '')
-          )
-          if (timeCandidate) {
-            postTimeText = (timeCandidate.getAttribute('aria-label') || timeCandidate.innerText || '').trim()
-          }
+        const timeCandidate = allLinks.find(a =>
+          /ngày|giờ|phút|hôm qua|tháng|vừa xong|mins?|hrs?|yesterday|just now/i.test(a.innerText || a.getAttribute('aria-label') || '')
+        )
+        if (timeCandidate) {
+          postTimeText = (timeCandidate.getAttribute('aria-label') || timeCandidate.innerText || '').trim()
         }
         if (!postTimeText) {
           const spans = Array.from(postCard.querySelectorAll('span[dir="auto"], span')) as HTMLElement[]
@@ -1674,10 +1926,38 @@ export class ScannerService {
         }
         postTimeText = postTimeText.replace(/[·•🌐\n\r]/g, ' ').replace(/\s+/g, ' ').trim()
 
-        if (!postUrl) {
-          postUrl = window.location.href.split('?')[0]
+        // 8. Bóc tách các bình luận trực tiếp bên dưới bài viết này (nếu có trên màn hình)
+        const comments: RawComment[] = []
+        const cNodes = Array.from(postCard.querySelectorAll('ul > li, div[role="article"], div[aria-label*="bình luận" i], div[aria-label*="comment" i]')) as HTMLElement[]
+        for (const cNode of cNodes) {
+          if (cNode === postCard) continue
+          const cText = (cNode.innerText || '').trim()
+          if (cText.length < 2 || cText.length > 500) continue
+          if (/^(?:thích|bình luận|chia sẻ|phù hợp nhất|xem thêm|xem tất cả)/i.test(cText)) continue
+
+          const aLink = cNode.querySelector('a[href*="/user/"], a[role="link"]') as HTMLAnchorElement | null
+          const sAuthor = cNode.querySelector('strong, span[dir="auto"]') as HTMLElement | null
+          const cAuthor = aLink?.innerText?.trim() || sAuthor?.innerText?.trim() || 'Thành viên'
+          const cAuthorUrl = aLink?.href ? aLink.href.split('?')[0] : undefined
+
+          if (cAuthor && authorName && cAuthor.toLowerCase() === authorName.toLowerCase()) continue
+
+          comments.push({
+            authorName: cAuthor,
+            authorUrl: cAuthorUrl,
+            content: cText,
+            postUrl,
+          })
         }
-        results.push({ authorName, authorUrl, content: cleanContent, postUrl, postTimeText: postTimeText || undefined })
+
+        results.push({
+          authorName,
+          authorUrl,
+          content: cleanContent,
+          postUrl,
+          postTimeText: postTimeText || undefined,
+          comments: comments.length > 0 ? comments : undefined,
+        })
       })
 
       return results
@@ -1688,6 +1968,10 @@ export class ScannerService {
     return page.evaluate(() => {
       const results: Array<{ authorName: string; authorUrl?: string; content: string; postUrl: string }> = []
       const commentNodes = Array.from(document.querySelectorAll('div[role="article"], div[aria-label*="bình luận" i], div[aria-label*="comment" i], ul > li div[dir="auto"]')) as HTMLElement[]
+
+      const currentUrl = window.location.href
+      const gMatch = currentUrl.match(/groups\/([^/?#]+)/i)
+      const currentGroupSlug = gMatch ? gMatch[1] : ''
 
       commentNodes.forEach((node) => {
         // Chỉ lấy article là comment (nằm lồng trong article cha hoặc có nhãn bình luận)
@@ -1705,16 +1989,31 @@ export class ScannerService {
         const authorName = authorLink?.innerText?.trim() || strongAuthor?.innerText?.trim() || 'Thành viên'
         const authorUrl = authorLink?.href ? authorLink.href.split('?')[0] : undefined
 
-        // Tìm link bài viết cha
-        const parentPost = node.closest('div[aria-posinset]') || node.closest('div[role="feed"] > div')
-        let postUrl = location.href
+        // Tìm link bài viết cha (bắt buộc phải có ID bài viết, tuyệt đối không lấy mỗi link nhóm)
+        const parentPost = node.parentElement?.closest('div[aria-posinset], div[role="article"]') || node.closest('div[role="feed"] > div')
+        let postUrl = ''
         if (parentPost) {
-          const pLink = parentPost.querySelector('a[href*="/posts/"], a[href*="/permalink/"]') as HTMLAnchorElement | null
-          if (pLink?.href) {
-            const m = pLink.href.match(/(https:\/\/[^/]+\/groups\/[^/]+\/(?:posts|permalink)\/\d+)/)
-            postUrl = m ? m[1] : pLink.href.split('?')[0]
+          const allParentLinks = Array.from(parentPost.querySelectorAll('a[href]')) as HTMLAnchorElement[]
+          for (const a of allParentLinks) {
+            const m = a.href.match(/(https:\/\/[^/]+\/groups\/[^/]+\/(?:posts|permalink)\/\d+)/i)
+            if (m) {
+              postUrl = m[1]
+              break
+            }
+          }
+          if (!postUrl && currentGroupSlug) {
+            for (const a of allParentLinks) {
+              const m = a.href.match(/multi_permalinks=(\d+)/i) || a.href.match(/[?&]set=gm\.(\d+)/i)
+              if (m) {
+                postUrl = `https://www.facebook.com/groups/${currentGroupSlug}/posts/${m[1]}`
+                break
+              }
+            }
           }
         }
+
+        // Nếu bình luận không liên kết được với bài viết chính xác trong nhóm thì bỏ qua
+        if (!postUrl) return
 
         results.push({
           authorName,
