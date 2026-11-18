@@ -1403,6 +1403,7 @@ export class ScannerService {
       await page.evaluate(() => {
         const w = window as any;
         w.__agy_bot_scrolling = true;
+        w.__agy_bot_scroll_until = Date.now() + 3000;
         w.__agy_bot_acting = Date.now();
       }).catch(() => { })
 
@@ -1426,9 +1427,10 @@ export class ScannerService {
 
         window.scrollBy({ top: amount, behavior: 'smooth' })
 
-        // Kết thúc nhịp cuộn của bot
+        // Duy trì cờ bot_scroll_until thêm 2500ms để dập tắt hoàn toàn mọi trớn quán tính (momentum) của Chrome
         const w = window as any;
         w.__agy_bot_scrolling = false;
+        w.__agy_bot_scroll_until = Date.now() + 2500;
         w.__agy_bot_acting = Date.now();
       }, scrollAmount)
 
@@ -1450,6 +1452,7 @@ export class ScannerService {
         await page.evaluate(() => {
           const w = window as any;
           w.__agy_bot_scrolling = true;
+          w.__agy_bot_scroll_until = Date.now() + 3000;
           w.__agy_bot_acting = Date.now();
         }).catch(() => { })
         await page.mouse.move(650, 450).catch(() => { })
@@ -1458,6 +1461,7 @@ export class ScannerService {
         await page.evaluate(() => {
           const w = window as any;
           w.__agy_bot_scrolling = false;
+          w.__agy_bot_scroll_until = Date.now() + 2500;
           w.__agy_bot_acting = Date.now();
         }).catch(() => { })
         await sleep(1500)
@@ -1630,13 +1634,19 @@ export class ScannerService {
           // 2. Bỏ qua các phím hệ thống bot có thể bấm (Escape, PageDown, PageUp)
           if (e && e.type === 'keydown' && ['Escape', 'PageDown', 'PageUp'].includes(e.key)) return
 
-          // 3. Nếu là sự kiện wheel do bot đang phát lệnh cuộn xuống -> bỏ qua
-          if ((window as any).__agy_bot_scrolling) {
-            // Nhưng nếu người dùng chủ động lăn chuột NGƯỢC LÊN TRÊN (deltaY < 0), chắc chắn là người dùng!
-            if (e && e.type === 'wheel' && e.deltaY < 0) {
-              // Người dùng vuốt lên trên -> cho phép nhận diện ngay!
+          // 3. Xử lý sự kiện WHEEL (cuộn chuột):
+          if (e && e.type === 'wheel') {
+            // NẾU NGƯỜI DÙNG CUỘN NGƯỢC LÊN TRÊN (deltaY < 0):
+            // Bot tuyệt đối không bao giờ cuộn lên trên. Chắc chắn 100% là người dùng!
+            if (e.deltaY < 0) {
+              // Hợp lệ: Người dùng chủ động vuốt ngược lên!
             } else {
-              return
+              // Nếu cuộn xuống (deltaY > 0): Kiểm tra xem có phải là trớn quán tính từ lệnh cuộn của bot không
+              const botScrollUntil = (window as any).__agy_bot_scroll_until || 0
+              if ((window as any).__agy_bot_scrolling || Date.now() < botScrollUntil) {
+                // Đây là trớn cuộn quán tính của bot -> BỎ QUA HOÀN TOÀN!
+                return
+              }
             }
           }
 
