@@ -525,15 +525,19 @@ export class WorkerService {
            return undefined;
        })(),
        args: [
-         ...(process.platform === 'darwin' ? [] : ['--disable-gpu', '--no-sandbox', '--disable-setuid-sandbox']),
+         '--no-sandbox',
+         '--disable-setuid-sandbox',
          '--test-type',
          '--disable-dev-shm-usage',
          '--disable-web-security',
          '--disk-cache-size=20000000',
          '--js-flags=--max-old-space-size=2048',
-         '--renderer-process-limit=4',
          '--disable-features=PreloadMediaEngagementData,MediaEngagementBypassAutoplayPolicies',
-         '--autoplay-policy=user-gesture-required'
+         '--autoplay-policy=user-gesture-required',
+         '--no-first-run',
+         '--no-default-browser-check',
+         '--disable-session-crashed-bubble',
+         '--hide-crash-restore-bubble'
        ]
     }
 
@@ -553,9 +557,14 @@ export class WorkerService {
     // Bỏ qua FingerprintInjector vì nó gây treo (hang) với playwright-extra stealth,
     // stealth plugin đã lo việc evasion, ta chỉ cần userAgent từ FingerprintGenerator.
 
-    // Lấy trang đầu tiên có sẵn trong context
+    // Lấy trang đầu tiên có sẵn trong context và đóng tất cả tab thừa từ phiên trước
     const pages = context.pages();
     const page = pages.length > 0 ? pages[0] : await context.newPage();
+    if (pages.length > 1) {
+      for (let i = 1; i < pages.length; i++) {
+        await pages[i].close().catch(() => {});
+      }
+    }
     await page.bringToFront().catch(() => {});
     
     return { context, page }

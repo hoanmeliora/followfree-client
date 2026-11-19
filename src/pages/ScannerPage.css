@@ -46,6 +46,68 @@
   gap: 8px;
 }
 
+.scanner-industry-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.scanner-industry-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #4b5563;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.scanner-industry-switch {
+  display: flex;
+  gap: 6px;
+  background: #f8fafc;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.scanner-industry-btn {
+  flex: 1;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 7px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all .15s ease-in-out;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  user-select: none;
+}
+
+.scanner-industry-btn:hover:not(:disabled) {
+  color: #0f172a;
+  background: #f1f5f9;
+}
+
+.scanner-industry-btn.active {
+  background: #ffffff;
+  color: #0f172a;
+  border-color: #cbd5e1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  font-weight: 700;
+}
+
+.scanner-industry-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .scanner-tab-bar {
   display: flex;
   gap: 4px;

@@ -3,6 +3,44 @@ import './ScannerPage.css'
 
 type LeadStatus = 'new' | 'read' | 'contacted'
 type StatusFilter = 'all' | LeadStatus
+type IndustryMode = 'RECRUITMENT' | 'SPA_BEAUTY'
+
+interface ModePreset {
+  keywordsText: string
+  commentKeywordsText: string
+  excludeKeywordsText: string
+  maxPostLength: number
+  keywordsPlaceholder: string
+  commentKeywordsPlaceholder: string
+  excludeKeywordsPlaceholder: string
+  lengthLabel: string
+  lengthHint: string
+}
+
+const MODE_PRESETS: Record<IndustryMode, ModePreset> = {
+  RECRUITMENT: {
+    keywordsText: 'tìm việc\ncần việc\nxin việc\ncông nhân thời vụ\nviệc làm',
+    commentKeywordsText: 'ib e với\nquan tâm\ncòn tuyển ko\ncó giới hạn độ tuổi không\nbao nhiêu tuổi\nnhận nam ko\nchấm\n.\nxin info\nở đâu ạ',
+    excludeKeywordsText: 'tuyển dụng\ntuyển gấp\nthu nhập\nmức lương\nyêu cầu hồ sơ\nxả kho\nsẵn hàng\nlắp mạng\nlắp wifi\nfpt\nviettel\nmỗi mẫu\nsale rẻ\nthanh lý\ntrả góp\nliệt sĩ\ntai nạn\ntừ thiện\nbán\ntài xỉu\nvay vốn',
+    maxPostLength: 30,
+    keywordsPlaceholder: 'tìm việc\ncần việc\nxin việc\ncông nhân thời vụ',
+    commentKeywordsPlaceholder: 'ib e với\nquan tâm\ncòn tuyển ko\nbao nhiêu tuổi\nnhận nam ko\nchấm\n.',
+    excludeKeywordsPlaceholder: 'tuyển dụng\ntuyển gấp\nthu nhập\nmức lương\nxả kho\nsale rẻ\nthanh lý',
+    lengthLabel: '📏 Giới hạn số từ tối đa của bài viết (Mặc định 30 từ):',
+    lengthHint: '* Bài viết của người tìm việc thật thường ngắn (dưới 30 từ). Bài dài nhiều hơn 30 từ chắc chắn là JD tuyển dụng của HR. Mặc định 30 từ để loại bỏ toàn bộ bài tuyển dụng dài của bọn HR.'
+  },
+  SPA_BEAUTY: {
+    keywordsText: 'trị mụn\nnặn mụn\ntriệt lông\ntắm trắng\nchăm sóc da\nda bị nám\nxin review spa\nspa nào uy tín\nlàm nail\nnối mi\ngội đầu dưỡng sinh\npeel da',
+    commentKeywordsText: 'giá sao ạ\nxin giá\ninbox e\nib giá\nở đâu vậy ạ\nđịa chỉ ở đâu\ntư vấn em với\nliệu trình mấy buổi\ncó đau không',
+    excludeKeywordsText: 'tuyển mẫu\ntuyển học viên\nkhóa học spa\nsỉ mỹ phẩm\nkem trộn\nthanh lý giường spa\nthanh lý máy spa\nsang nhượng spa\ntuyển dụng\ntuyển gấp',
+    maxPostLength: 100,
+    keywordsPlaceholder: 'trị mụn\nnặn mụn\ntriệt lông\ntắm trắng\nchăm sóc da\nxin review spa',
+    commentKeywordsPlaceholder: 'giá sao ạ\nxin giá\nib giá\nở đâu vậy ạ\nđịa chỉ ở đâu\ntư vấn em với',
+    excludeKeywordsPlaceholder: 'tuyển mẫu\ntuyển học viên\nkhóa học spa\nsỉ mỹ phẩm\nthanh lý máy spa',
+    lengthLabel: '📏 Giới hạn số từ tối đa của bài viết (Mặc định 100 từ):',
+    lengthHint: '* Khách hỏi review spa, kinh nghiệm làm đẹp thường viết bài ngắn vừa phải. Bài dài hơn 100 từ thường là bài quảng cáo dịch vụ/bài PR của Spa đối thủ.'
+  }
+}
 
 interface Lead {
   id: string
@@ -59,6 +97,7 @@ function notifyNewLead(lead: Lead): void {
 }
 
 export function ScannerPage() {
+  const [industryMode, setIndustryMode] = useState<IndustryMode>('RECRUITMENT')
   const [configTab, setConfigTab] = useState<'target' | 'filters'>('target')
   const [groupsText, setGroupsText] = useState('')
   const [keywordsText, setKeywordsText] = useState('')
@@ -81,6 +120,8 @@ export function ScannerPage() {
   useEffect(() => {
     const api = window.electronAPI
     api.scannerGetConfig().then((config) => {
+      const mode = config.industryMode || 'RECRUITMENT'
+      setIndustryMode(mode)
       setGroupsText(config.groups.join('\n'))
       setKeywordsText(config.keywords.join('\n'))
       setCommentKeywordsText((config.commentKeywords ?? []).join('\n'))
@@ -88,7 +129,7 @@ export function ScannerPage() {
       setAutoFilterSpam(config.autoFilterSpam !== false)
       setScanComments(config.scanComments !== false)
       setMaxPostAgeDays(config.maxPostAgeDays ?? 3)
-      setMaxPostLength(config.maxPostLength ?? 30)
+      setMaxPostLength(config.maxPostLength ?? (mode === 'SPA_BEAUTY' ? 100 : 30))
       setIntervalMinutes(config.intervalMinutes)
       setRecipient(config.notifyRecipient ?? '')
       setIsRunning(config.isRunning)
@@ -113,6 +154,7 @@ export function ScannerPage() {
 
   const saveConfig = useCallback(async (): Promise<boolean> => {
     const result = await window.electronAPI.scannerSaveConfig({
+      industryMode,
       groups: splitLines(groupsText),
       keywords: splitLines(keywordsText),
       commentKeywords: splitLines(commentKeywordsText),
@@ -129,6 +171,7 @@ export function ScannerPage() {
       return false
     }
     const saved = await window.electronAPI.scannerGetConfig()
+    setIndustryMode(saved.industryMode || 'RECRUITMENT')
     setGroupsText(saved.groups.join('\n'))
     setKeywordsText(saved.keywords.join('\n'))
     setCommentKeywordsText((saved.commentKeywords ?? []).join('\n'))
@@ -136,12 +179,62 @@ export function ScannerPage() {
     setAutoFilterSpam(saved.autoFilterSpam !== false)
     setScanComments(saved.scanComments !== false)
     setMaxPostAgeDays(saved.maxPostAgeDays ?? 3)
-    setMaxPostLength(saved.maxPostLength ?? 30)
+    setMaxPostLength(saved.maxPostLength ?? (saved.industryMode === 'SPA_BEAUTY' ? 100 : 30))
     setIntervalMinutes(saved.intervalMinutes)
     setRecipient(saved.notifyRecipient ?? '')
-    setMessage({ text: 'Đã lưu cấu hình bộ lọc săn khách', kind: 'success' })
+    setMessage({
+      text: `Đã lưu cấu hình [${saved.industryMode === 'SPA_BEAUTY' ? '💆 Spa & Làm Đẹp' : '🎯 Tuyển Dụng & Việc Làm'}]`,
+      kind: 'success',
+    })
     return true
-  }, [groupsText, keywordsText, commentKeywordsText, excludeKeywordsText, autoFilterSpam, scanComments, maxPostAgeDays, maxPostLength, intervalMinutes, recipient])
+  }, [industryMode, groupsText, keywordsText, commentKeywordsText, excludeKeywordsText, autoFilterSpam, scanComments, maxPostAgeDays, maxPostLength, intervalMinutes, recipient])
+
+  const switchIndustryMode = (targetMode: IndustryMode) => {
+    if (targetMode === industryMode) return
+
+    // 1. Lưu cấu hình hiện tại của mode cũ vào localStorage để tránh mất dữ liệu
+    try {
+      const currentDraft = {
+        groupsText,
+        keywordsText,
+        commentKeywordsText,
+        excludeKeywordsText,
+        maxPostLength,
+      }
+      localStorage.setItem(`scanner_draft_${industryMode}`, JSON.stringify(currentDraft))
+    } catch { }
+
+    // 2. Nạp bản nháp đã lưu của targetMode hoặc nạp Preset chuẩn
+    try {
+      const savedTarget = localStorage.getItem(`scanner_draft_${targetMode}`)
+      if (savedTarget) {
+        const parsed = JSON.parse(savedTarget)
+        if (parsed.keywordsText !== undefined) setKeywordsText(parsed.keywordsText)
+        if (parsed.commentKeywordsText !== undefined) setCommentKeywordsText(parsed.commentKeywordsText)
+        if (parsed.excludeKeywordsText !== undefined) setExcludeKeywordsText(parsed.excludeKeywordsText)
+        if (parsed.maxPostLength !== undefined) setMaxPostLength(parsed.maxPostLength)
+        if (parsed.groupsText !== undefined && parsed.groupsText.trim()) setGroupsText(parsed.groupsText)
+      } else {
+        const preset = MODE_PRESETS[targetMode]
+        setKeywordsText(preset.keywordsText)
+        setCommentKeywordsText(preset.commentKeywordsText)
+        setExcludeKeywordsText(preset.excludeKeywordsText)
+        setMaxPostLength(preset.maxPostLength)
+      }
+    } catch {
+      const preset = MODE_PRESETS[targetMode]
+      setKeywordsText(preset.keywordsText)
+      setCommentKeywordsText(preset.commentKeywordsText)
+      setExcludeKeywordsText(preset.excludeKeywordsText)
+      setMaxPostLength(preset.maxPostLength)
+    }
+
+    setIndustryMode(targetMode)
+    setMessage({
+      text: `Đã chuyển sang chế độ: ${targetMode === 'SPA_BEAUTY' ? '💆 Spa & Làm Đẹp' : '🎯 Tuyển Dụng & Việc Làm'}`,
+      kind: 'success',
+    })
+  }
 
   const toggleScanner = async () => {
     if (isRunning) {
@@ -200,11 +293,33 @@ export function ScannerPage() {
     <div className="scanner-page">
       <div className="scanner-header">
         <h2>🎯 Săn Khách & Ứng Viên (Social Listening)</h2>
-        <p>Quét bài viết và bình luận trong nhóm Facebook theo từ khóa mục tiêu, hỗ trợ lọc ý định tự do và né tin rác/đối thủ.</p>
+        <p>Quét bài viết và bình luận trong nhóm Facebook theo ngành nghề, hỗ trợ lọc khách hàng thật và né triệt để bài rác/đối thủ.</p>
       </div>
 
       <div className="scanner-layout">
         <section className="scanner-panel">
+          <div className="scanner-industry-box">
+            <span className="scanner-industry-title">Ngành Nghề Quét Khách</span>
+            <div className="scanner-industry-switch">
+              <button
+                type="button"
+                className={`scanner-industry-btn ${industryMode === 'RECRUITMENT' ? 'active' : ''}`}
+                onClick={() => switchIndustryMode('RECRUITMENT')}
+                disabled={isRunning}
+              >
+                🎯 Tuyển Dụng & Việc Làm
+              </button>
+              <button
+                type="button"
+                className={`scanner-industry-btn ${industryMode === 'SPA_BEAUTY' ? 'active' : ''}`}
+                onClick={() => switchIndustryMode('SPA_BEAUTY')}
+                disabled={isRunning}
+              >
+                💆 Spa & Làm Đẹp
+              </button>
+            </div>
+          </div>
+
           <div className="scanner-tab-bar">
             <button
               className={`scanner-tab-btn ${configTab === 'target' ? 'active' : ''}`}
@@ -233,12 +348,14 @@ export function ScannerPage() {
                 onChange={(e) => setGroupsText(e.target.value)}
               />
 
-              <label className="scanner-label">Từ khóa quét BÀI VIẾT (Nhập từ khóa / ý định cần tìm - mỗi dòng 1 từ)</label>
+              <label className="scanner-label">
+                Từ khóa quét BÀI VIẾT ({industryMode === 'SPA_BEAUTY' ? 'Trị mụn, triệt lông, tắm trắng, nail, review spa...' : 'Tìm việc, xin việc, công nhân...'} - mỗi dòng 1 từ)
+              </label>
               <textarea
                 id="scanner-keywords"
                 className="scanner-textarea"
                 rows={5}
-                placeholder={'tìm việc\ncần việc\nxin việc\ncông nhân thời vụ\nmua iphone 15'}
+                placeholder={MODE_PRESETS[industryMode].keywordsPlaceholder}
                 value={keywordsText}
                 disabled={isRunning}
                 onChange={(e) => setKeywordsText(e.target.value)}
@@ -256,7 +373,7 @@ export function ScannerPage() {
                 onChange={(e) => setMaxPostAgeDays(Math.max(1, Math.min(30, Number(e.target.value) || 3)))}
               />
               <span className="scanner-hint-text">
-                * Bỏ qua bài đăng cũ hơn {maxPostAgeDays} ngày. Khi gặp 10 bài cũ liên tiếp, tool sẽ tự dừng cuộn nhóm để tiết kiệm thời gian.
+                * Bỏ qua bài đăng cũ hơn {maxPostAgeDays} ngày. Khi gặp 5 bài cũ liên tiếp, tool sẽ tự dừng cuộn nhóm để chuyển sang nhóm kế tiếp.
               </span>
 
               <label className="scanner-label">Quét lại mỗi (phút, ví dụ: 120p = 2 tiếng, 600p = 10 tiếng)</label>
@@ -293,13 +410,13 @@ export function ScannerPage() {
             <div className="scanner-tab-content">
               {/* Comment Keywords Box (Ô quét riêng cho bình luận) */}
               <label className="scanner-label">
-                💬 Từ khóa quét BÌNH LUẬN (Ô quét riêng cho comment - mỗi dòng 1 từ)
+                💬 Từ khóa quét BÌNH LUẬN ({industryMode === 'SPA_BEAUTY' ? 'Khách hỏi giá, xin tư vấn, địa chỉ...' : 'Ứng viên xin việc, hỏi ca, chấm...'} - mỗi dòng 1 từ)
               </label>
               <textarea
                 id="scanner-comment-keywords"
                 className="scanner-textarea"
                 rows={5}
-                placeholder={'ib e với\nquan tâm\ncòn tuyển ko\ncó giới hạn độ tuổi không\nbao nhiêu tuổi\nnhận nam ko\nchấm\n.\nxin info\nở đâu ạ'}
+                placeholder={MODE_PRESETS[industryMode].commentKeywordsPlaceholder}
                 value={commentKeywordsText}
                 disabled={isRunning}
                 onChange={(e) => {
@@ -316,13 +433,13 @@ export function ScannerPage() {
 
               {/* Exclude Keywords Box */}
               <label className="scanner-label" style={{ marginTop: '10px' }}>
-                🚫 Từ khóa LOẠI TRỪ (Né bài đối thủ / HR / Bán buôn / Spam - mỗi dòng 1 từ)
+                🚫 Từ khóa LOẠI TRỪ ({industryMode === 'SPA_BEAUTY' ? 'Né Spa đối thủ / Bán máy / Khóa học / Mỹ phẩm' : 'Né bài đối thủ / HR / Bán buôn / Spam'} - mỗi dòng 1 từ)
               </label>
               <textarea
                 id="scanner-exclude-keywords"
                 className="scanner-textarea"
                 rows={5}
-                placeholder={'tuyển dụng\ntuyển gấp\nthu nhập\nmức lương\nyêu cầu hồ sơ\nxả kho\nsẵn hàng\nlắp mạng\nlắp wifi\nfpt\nviettel\nmỗi mẫu\nsale rẻ\nthanh lý\ntrả góp\nliệt sĩ\ntai nạn\ntừ thiện\nbán\ntài xỉu\nvay vốn'}
+                placeholder={MODE_PRESETS[industryMode].excludeKeywordsPlaceholder}
                 value={excludeKeywordsText}
                 disabled={isRunning}
                 onChange={(e) => setExcludeKeywordsText(e.target.value)}
@@ -358,7 +475,7 @@ export function ScannerPage() {
 
               <div style={{ marginTop: '12px' }}>
                 <label className="scanner-label" htmlFor="scanner-max-post-len">
-                  📏 Giới hạn số từ tối đa của bài viết (Mặc định 30 từ):
+                  {MODE_PRESETS[industryMode].lengthLabel}
                 </label>
                 <input
                   id="scanner-max-post-len"
@@ -373,7 +490,7 @@ export function ScannerPage() {
                   onChange={(e) => setMaxPostLength(Math.max(0, parseInt(e.target.value, 10) || 0))}
                 />
                 <span className="scanner-hint-text">
-                  * Bài viết của người tìm việc thật thường ngắn (dưới 30 từ). Bài viết dài nhiều hơn 30 từ chắc chắn là bản tin tuyển dụng / JD của bọn HR. Mặc định 30 từ để loại bỏ toàn bộ bài tuyển dụng dài của bọn HR.
+                  {MODE_PRESETS[industryMode].lengthHint}
                 </span>
               </div>
             </div>

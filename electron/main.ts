@@ -785,7 +785,20 @@ function setupIpcHandlers(
 
   // Scanner (Săn khách)
   ipcMain.handle('scanner:getConfig', async () => workerService!.scanner.getConfig())
-  ipcMain.handle('scanner:saveConfig', async (_e, input: { groups: string[]; keywords: string[]; intervalMinutes: number; notifyRecipient?: string }) => {
+  ipcMain.handle('scanner:saveConfig', async (_e, input: {
+    industryMode?: 'RECRUITMENT' | 'SPA_BEAUTY'
+    groups: string[]
+    keywords: string[]
+    intentKeywords?: string[]
+    commentKeywords?: string[]
+    excludeKeywords?: string[]
+    autoFilterSpam?: boolean
+    scanComments?: boolean
+    maxPostAgeDays?: number
+    maxPostLength?: number
+    intervalMinutes: number
+    notifyRecipient?: string
+  }) => {
     const isValid = input && Array.isArray(input.groups) && Array.isArray(input.keywords)
       && (input.notifyRecipient === undefined || typeof input.notifyRecipient === 'string')
     if (!isValid) return { success: false, error: 'Dữ liệu không hợp lệ' }

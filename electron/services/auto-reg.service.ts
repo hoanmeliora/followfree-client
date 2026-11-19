@@ -277,7 +277,6 @@ export class AutoRegService {
             headless: false, // Hiển thị theo yêu cầu của sếp
             channel: 'chrome',
             args: [
-                '--disable-gpu',
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',

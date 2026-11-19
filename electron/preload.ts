@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Scanner (Săn khách)
   scannerGetConfig: () => ipcRenderer.invoke('scanner:getConfig'),
   scannerSaveConfig: (input: {
+    industryMode?: 'RECRUITMENT' | 'SPA_BEAUTY'
     groups: string[]
     keywords: string[]
     intentKeywords?: string[]

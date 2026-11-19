@@ -93,7 +93,6 @@ export class PageFarmService {
                 userAgent: userAgent || undefined, // Dùng đúng UserAgent của nick
                 channel: 'chrome',
                 args: [
-                    '--disable-gpu',
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
                     '--disable-dev-shm-usage',
@@ -103,7 +102,13 @@ export class PageFarmService {
                 viewport: { width: 1280, height: 720 }
             });
             
-            const page = await context.newPage();
+            const pages = context.pages();
+            const page = pages.length > 0 ? pages[0] : await context.newPage();
+            if (pages.length > 1) {
+              for (let i = 1; i < pages.length; i++) {
+                await pages[i].close().catch(() => {});
+              }
+            }
 
             // 3. Set Cookie để bypass login
             this.log('Nạp cookies để qua mặt cổng đăng nhập...');

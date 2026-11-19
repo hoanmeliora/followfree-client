@@ -57,6 +57,7 @@ declare global {
       onAutoRegLog: (cb: (e: any, msg: string) => void) => () => void
 
       scannerGetConfig: () => Promise<{
+        industryMode?: 'RECRUITMENT' | 'SPA_BEAUTY'
         groups: string[]
         keywords: string[]
         intentKeywords?: string[]
@@ -71,6 +72,7 @@ declare global {
         notifyRecipient?: string
       }>
       scannerSaveConfig: (input: {
+        industryMode?: 'RECRUITMENT' | 'SPA_BEAUTY'
         groups: string[]
         keywords: string[]
         intentKeywords?: string[]

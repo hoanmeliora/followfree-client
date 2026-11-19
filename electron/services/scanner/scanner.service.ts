@@ -68,7 +68,7 @@ export function parsePostAgeDays(timeStr?: string, referenceDate: Date = new Dat
 
 const MIN_INTERVAL_MINUTES = 1
 const MAX_GROUPS = 50
-const TARGET_POSTS_PER_GROUP = 150
+const TARGET_POSTS_PER_GROUP = 500
 const MAX_SCROLL_ROUNDS = 30
 const STALLED_ROUNDS_LIMIT = 2
 const BUSY_RETRY_MS = 60 * 1000
@@ -105,7 +105,9 @@ export function normalizeTeencode(norm: string): string {
     .replace(/\bvie+c+\b/g, 'viec')
     .replace(/\bvje+[ck]+\b/g, 'viec')
     .replace(/\b(tim|can|xin|kiem|lam|co|muon)\s+viet\b/g, '$1 viec')
-    .replace(/\b(tim|can|xin|kiem|lam|co|muon|cong)\s+vc\b/g, '$1 viec')
+    .replace(/\b(can\s+tim|dang\s+tim|dang\s+can|tim|can|xin|kiem|lam|co|muon|cong)\s+vc\b/g, '$1 viec')
+    .replace(/\b(can\s+tim|dang\s+tim|dang\s+can|tim|can|xin|kiem|lam|co|muon|cong)\s+cv\b/g, '$1 viec')
+    .replace(/\bcv\s+(ke\s*toan|ban\s*hang|van\s*phong|thoi\s*vu|ca\s*ngay|ca\s*dem|part\s*time|full\s*time|phuc\s*vu|tap\s*vu|giao\s*hang|kho)\b/g, 'viec $1')
     .replace(/\bvc\s+(lam|ban\s*hang|part\s*time|ca\s*toi|phuc\s*vu)\b/g, 'viec $1')
     .replace(/\b(can|nhan|thieu|tuyen|tim)\s+ng\b/g, '$1 nguoi')
     .replace(/\b(cog|coq)\s+(viec|vc)\b/g, 'cong viec')
@@ -132,7 +134,11 @@ export const DEFAULT_EXCLUDE_KEYWORDS: string[] = [
   'lắp mạng', 'lắp wifi', 'fpt', 'viettel', 'vnpt', 'lắp camera', 'cáp quang', 'sim 4g',
   'mỗi mẫu', 'mẫu', 'thanh lý', 'thanh lí', 'trả góp', 'góp', 'giá rẻ', 'sale rẻ', 'siêu rẻ',
   'giá để trong ảnh', 'miễn phí vận chuyển', 'lắp đặt tận nhà',
-  'liệt sĩ', 'mộ liệt sĩ', 'rơi giấy tờ', 'nhặt được cccd', 'tai nạn', 'từ thiện'
+  'liệt sĩ', 'mộ liệt sĩ', 'rơi giấy tờ', 'nhặt được cccd', 'tai nạn', 'từ thiện',
+  'phòng trọ', 'nhà trọ', 'tìm phòng trọ', 'cho thuê phòng', 'cho thuê nhà',
+  'phòng khép kín', 'wc khép kín', 'gác xép', 'ở ghép', 'tìm người ở ghép',
+  'pass phòng', 'nhượng phòng', 'tiền cọc', 'thuê lâu dài', 'ở luôn', 'trống phòng', 'còn phòng',
+  'xe ghép', 'nhà xe', 'taxi', 'xe tiện chuyến', 'bao xe', 'xe dịch vụ', 'xe đi chung', 'xe 5 chỗ', 'xe 7 chỗ', 'gửi hàng siêu tốc'
 ]
 
 export const SPAM_SELLER_PATTERNS = [
@@ -142,6 +148,96 @@ export const SPAM_SELLER_PATTERNS = [
   /(?:shopee\.vn|lazada\.vn|tiktok\.com|tiki\.vn)\/[\w./?=&#%-]+/i,
   /#(?:sale|xakho|hangchinhhang|giare|order|shipcod)\b/i,
 ]
+
+/** Các mẫu bài đăng cho thuê phòng trọ, nhà trọ, tìm phòng, ở ghép, bất động sản */
+export const ROOM_RENTAL_PATTERNS = [
+  // 1. Trực diện phòng trọ, nhà trọ, xóm trọ, khu trọ, chung cư mini, ccmn
+  /\b(?:phong\s*tro|nha\s*tro|tim\s*(?:phong\s*)?tro|xom\s*tro|khu\s*tro)\b/,
+  /\b(?:cho\s*thue\s*phong|thue\s*phong(?:\s*tro)?|cho\s*thue\s*nha|thue\s*nha\s*nguyen\s*can|can\s*ho\s*mini|chung\s*cu\s*mini|ccmn)\b/,
+  /\b(?:cho\s*thue\s*mat\s*bang|cho\s*thue\s*ki\s*ot|cho\s*thue\s*kios)\b/,
+  /\b(?:o\s*ghep|tim\s*(?:ban|nguoi)\s*o\s*ghep|nam\s*o\s*ghep|nu\s*o\s*ghep|pass\s*phong|nhuong\s*phong|sang\s*nhuong\s*phong)\b/,
+
+  // 2. Đặc trưng tiện nghi phòng trọ / phòng khép kín / gác xép
+  /\b(?:wc|nvs|ve\s*sinh)\s*(?:khep\s*kin|rieng)\b/,
+  /\b(?:phong\s*khep\s*kin|khep\s*kin\s*hoan\s*toan)\b/,
+  /\b(?:gac\s*xep|gac\s*lung|co\s*gac)\b/,
+
+  // 3. Quy định thuê / cọc phòng / chi phí điện nước phòng trọ
+  /\b(?:thue\s*lau\s*dai|tien\s*phong|gia\s*phong)\b/,
+  /\b(?:dien\s*\d+k|nuoc\s*\d+k|dien\s*nuoc\s*gia\s*dan|dien\s*nuoc\s*gia\s*nha\s*nuoc|nuoc\s*may)\b/,
+  /\b(?:gio\s*giac\s*tu\s*do|khong\s*chung\s*chu|ko\s*chung\s*chu|khoa\s*van\s*tay|cong\s*van\s*tay)\b/,
+  /\b(?:dat\s*coc\s*phong|giu\s*phong|coc\s*phong)\b/,
+  /(?<!ko\s)(?<!khong\s)\bco\s*coc\b(?!\s*ko)(?!\s*khong)/,
+]
+
+export function isRoomRentalPost(normContent: string, teencodeContent: string): boolean {
+  for (const p of ROOM_RENTAL_PATTERNS) {
+    if (p.test(normContent) || p.test(teencodeContent)) {
+      return true
+    }
+  }
+
+  // Tổ hợp cho thuê phòng trọ (trống/còn phòng + tiện nghi hoặc cọc/thuê)
+  const hasRoomAvailability =
+    /\b(?:trong|con|con\s*trong|co)\s+(?:\d+\s+)?(?:phong|p)\b/.test(normContent) ||
+    /\b(?:o\s*luon|vao\s*o\s*(?:luon|ngay)|o\s*ngay|don\s*(?:vao|den)\s*o)\b/.test(normContent)
+
+  const hasRoomFacilityOrCondition =
+    /\b(?:dieu\s*hoa|nong\s*lanh|khep\s*kin|ban\s*cong|ke\s*bep|tu\s*bep|thue|coc|dat\s*coc|dien\s*nuoc)\b/.test(normContent)
+
+  if (hasRoomAvailability && hasRoomFacilityOrCondition) {
+    return true
+  }
+
+  return false
+}
+
+/** Tên tài khoản chuyên đăng tin xe ghép, taxi, nhà xe, dịch vụ vận chuyển */
+export const TRANSPORT_AUTHOR_PATTERN =
+  /\b(?:xe\s*ghep|nha\s*xe|taxi|xe\s*tien\s*chuyen|xe\s*dich\s*vu|tong\s*dai\s*xe|van\s*tai|xe\s*khach|chuyen\s*xe|lai\s*xe\s*dich\s*vu)\b/i
+
+/** Các mẫu bài đăng quảng cáo dịch vụ xe ghép, taxi, nhà xe, bao xe, gửi hàng */
+export const TRANSPORT_SERVICE_PATTERNS = [
+  /\b(?:xe\s*ghep|xe\s*tien\s*chuyen|xe\s*di\s*chung|xe\s*tien\s*duong)\b/,
+  /\b(?:tong\s*dai\s*(?:xe|taxi)|taxi\s*(?:duong\s*dai|gia\s*dinh|lien\s*tinh|san\s*bay|noi\s*bai))\b/,
+  /\b(?:bao\s*xe|di\s*ghep|chuyen\s*xe|nhan\s*cho\s*khach|don\s*tra\s*tan\s*noi|xe\s*don\s*tra|tra\s*tan\s*noi)\b/,
+  /\b(?:xe\s*[457]\s*cho|xe\s*16\s*cho|xe\s*limousine|limousine)\b/,
+  /\b(?:gui\s*hang\s*sieu\s*toc|nhan\s*gui\s*hang|xe\s*tai\s*cho\s*hang|cho\s*thue\s*xe\s*tu\s*lai|thue\s*xe\s*du\s*lich)\b/,
+  /\b\d+k\s*\/\s*1?\s*km\b/,
+  /\b(?:bao\s*xe|xe\s*ghep).*?\d+k\b/,
+  /\b\d+k\s*(?:=>|->|-)\s*\d+k\b/,
+]
+
+export function isTransportServicePost(normContent: string, teencodeContent: string): boolean {
+  for (const p of TRANSPORT_SERVICE_PATTERNS) {
+    if (p.test(normContent) || p.test(teencodeContent)) {
+      return true
+    }
+  }
+  return false
+}
+
+/** Tên tài khoản chuyên Spa, thẩm mỹ viện, clinic, nail, mi */
+export const SPA_AUTHOR_PATTERN =
+  /\b(?:spa\b|tham\s*my|tmv|beauty|clinic|nail|nails|mi\s*xinh|noi\s*mi|phun\s*xam|vien\s*tham\s*my|duong\s*sinh|tri\s*mun|triet\s*long|tiem\s*filler|cham\s*soc\s*da|eyelash|skincare)\b/i
+
+/** Các mẫu bài viết quảng cáo, bảng giá, khóa học, bán đồ nghề của Spa đối thủ */
+export const SPA_COMPETITOR_PATTERNS = [
+  /\b(?:bang\s*gia|uu\s*dai\s*(?:\d+|khung|soc|dac\s*biet)|giam\s*(?:gia\s*)?\d+%?|sale\s*\d+%|dong\s*gia\s*\d+k|tang\s*(?:ngay|kem)|bao\s*hanh\s*tron\s*doi|voucher|check\s*in\s*giam|combo\s*(?:lam\s*dep|spa|tri\s*mun|triet\s*long))\b/,
+  /\b(?:cay\s*(?:trang|dna|collagen|ha)|tiem\s*(?:meso|filler|botox|tan\s*mo|bap\s*tay|cam|moi)|nang\s*mui|cat\s*mi|phun\s*(?:moi|may|mi)|dieu\s*khac\s*chan\s*may|khu\s*tham\s*moi)\b/,
+  /\b(?:nhan\s*(?:lam|khach)\s*(?:nail|mi|spa|mong)|nhan\s*khach\s*(?:tai\s*nha|tan\s*nha)|nhan\s*len\s*mau\s*nail)\b/,
+  /\b(?:tuyen\s*mau|can\s*mau|mau\s*mien\s*phi|tuyen\s*hoc\s*vien|khoa\s*hoc\s*spa|dao\s*tao\s*(?:hoc\s*vien|spa|nghe)|day\s*nghe\s*spa|hoc\s*phi|day\s*nail|day\s*noi\s*mi)\b/,
+  /\b(?:thanh\s*ly\s*(?:may|giuong|do\s*spa|do\s*nail|den\s*led)|sang\s*nhuong\s*spa|chuyen\s*nhuong\s*spa|si\s*my\s*pham|kem\s*tron|phan\s*phoi\s*my\s*pham|dai\s*ly\s*my\s*pham)\b/,
+]
+
+export function isSpaCompetitorPost(normContent: string, teencodeContent: string): boolean {
+  for (const p of SPA_COMPETITOR_PATTERNS) {
+    if (p.test(normContent) || p.test(teencodeContent)) {
+      return true
+    }
+  }
+  return false
+}
 
 /** Các mẫu bài viết bán hàng, thanh lý, thương mại của Shop / Cá nhân */
 export const HARD_SELLER_PATTERNS = [
@@ -207,8 +303,9 @@ export const COMMUNITY_NON_JOB_PATTERNS = [
 /** Dấu hiệu đặc trưng cho thấy bài viết của ỨNG VIÊN đang tìm việc thật sự */
 export const CANDIDATE_SEEKING_PATTERNS = [
   /\b(?:tim\s*viec|xin\s*viec|can\s*viec|kiem\s*viec|muon\s*tim\s*viec|can\s*tim\s*viec|dang\s*can\s*viec|dang\s*tim\s*viec)\b/,
-  /\b(?:tim\s*vc|xin\s*vc|can\s*vc|kiem\s*vc|tim\s*job|xin\s*job|can\s*job|kiem\s*job)\b/,
-  /\b(?:xin\s*di\s*lam|muon\s*di\s*lam|can\s*di\s*lam|di\s*lam\s*ngay|di\s*lam\s*luon|di\s*lam\s*lien|co\s*the\s*di\s*lam)\b/,
+  /\b(?:tim\s*(?:vc|cv)|xin\s*(?:vc|cv)|can\s*(?:vc|cv)|kiem\s*(?:vc|cv)|can\s*tim\s*(?:vc|cv)|dang\s*tim\s*(?:vc|cv)|dang\s*can\s*(?:vc|cv)|tim\s*job|xin\s*job|can\s*job|kiem\s*job)\b/,
+  /\b(?:xin\s*di\s*lam|muon\s*di\s*lam|can\s*di\s*lam|di\s*lam\s*ngay|di\s*lam\s*luon|di\s*lam\s*lien|co\s*the\s*di\s*lam|ok\s*e\s*di\s*lam|ok\s*em\s*di\s*lam)\b/,
+  /\b(?:dinh\s*huong\s*lam\s*lau\s*dai|yc\s*it\s*kinh\s*nghiem|it\s*kinh\s*nghiem|chua\s*co\s*kinh\s*nghiem|chua\s*co\s*kn)\b/,
   /\b(?:em\s*sinh\s*vien|minh\s*sinh\s*vien|chau\s*sinh\s*vien|em\s*sv|chau\s*sv|minh\s*sv)\b/,
   /\b(?:em|minh|toi|chau|e)\s*(?:sinh\s*nam|sn)\s*(?:19\d{2}|20\d{2}|[89]\d|2k\d?)\b/,
   /\b(?:sn|sinh\s*nam)\s*(?:19\d{2}|20\d{2}|[89]\d|2k\d?).*(?:tim|can|xin|muon|viec|di\s*lam)\b/,
@@ -309,7 +406,7 @@ export function getCleanPostWords(text: string, authorName = '', groupName = '')
 
 export function evaluatePostMatch(
   content: string,
-  config: Pick<ScannerConfig, 'keywords' | 'intentKeywords' | 'excludeKeywords' | 'autoFilterSpam' | 'maxPostLength'>,
+  config: Pick<ScannerConfig, 'keywords' | 'intentKeywords' | 'excludeKeywords' | 'autoFilterSpam' | 'maxPostLength' | 'industryMode'>,
   authorName?: string,
   groupName?: string
 ): EvaluationResult {
@@ -343,6 +440,103 @@ export function evaluatePostMatch(
     }
   }
 
+  // ==========================================
+  // CHẾ ĐỘ: SPA & LÀM ĐẸP (SPA_BEAUTY)
+  // ==========================================
+  if (config.industryMode === 'SPA_BEAUTY') {
+    if (config.autoFilterSpam !== false) {
+      // Chặn triệt để bài viết phòng trọ và xe ghép
+      if (isRoomRentalPost(normContent, teencodeContent)) {
+        return {
+          matched: false,
+          matchedKeywords: [],
+          rejectReason: 'Phát hiện bài viết cho thuê phòng trọ/nhà trọ/bất động sản',
+        }
+      }
+      if (isTransportServicePost(normContent, teencodeContent)) {
+        return {
+          matched: false,
+          matchedKeywords: [],
+          rejectReason: 'Phát hiện bài viết dịch vụ xe ghép/taxi/nhà xe/vận tải',
+        }
+      }
+      if (authorName && TRANSPORT_AUTHOR_PATTERN.test(normalizeText(authorName))) {
+        return {
+          matched: false,
+          matchedKeywords: [],
+          rejectReason: `Phát hiện tài khoản nhà xe/xe ghép ("${authorName}")`,
+        }
+      }
+
+      // Chặn tài khoản Spa / Thẩm Mỹ / Clinic / Nail / Mi đối thủ
+      if (authorName && SPA_AUTHOR_PATTERN.test(normalizeText(authorName))) {
+        return {
+          matched: false,
+          matchedKeywords: [],
+          rejectReason: `Phát hiện tài khoản Spa/Thẩm mỹ/Nail/Mi đối thủ ("${authorName}")`,
+        }
+      }
+
+      // Chặn bài quảng cáo dịch vụ / bảng giá / tuyển mẫu / khóa học của Spa đối thủ
+      if (isSpaCompetitorPost(normContent, teencodeContent)) {
+        return {
+          matched: false,
+          matchedKeywords: [],
+          rejectReason: 'Phát hiện bài quảng cáo dịch vụ/bảng giá/khóa học của Spa đối thủ',
+        }
+      }
+
+      // Giới hạn độ dài bài nếu có cài đặt
+      const cleanWords = getCleanPostWords(content, authorName, groupName)
+      const maxWords = (config.maxPostLength && config.maxPostLength > 0) ? config.maxPostLength : 100
+      if (cleanWords.length > maxWords) {
+        return {
+          matched: false,
+          matchedKeywords: [],
+          rejectReason: `Bài viết dài hơn ${maxWords} từ (${cleanWords.length} từ - bài PR/quảng cáo của Spa đối thủ)`,
+        }
+      }
+
+      // Chặn bài viết rỗng hoặc cụt ngủn
+      if (cleanWords.length < 2) {
+        return {
+          matched: false,
+          matchedKeywords: [],
+          rejectReason: `Bài viết không có nội dung thực tế (${cleanWords.length} từ)`,
+        }
+      }
+
+      // Chặn link sàn TMĐT / Hotline shop
+      for (const pattern of SPAM_SELLER_PATTERNS) {
+        if (pattern.test(content)) {
+          return {
+            matched: false,
+            matchedKeywords: [],
+            rejectReason: 'Phát hiện bài bán hàng/quảng cáo của shop (Hotline/STK/Link sàn TMĐT)',
+          }
+        }
+      }
+    }
+
+    // Khớp từ khóa quét của Spa (trị mụn, nặn mụn, triệt lông, tắm trắng, làm nail...)
+    const targetMatched = findMatchedKeywords(effectiveContent, config.keywords)
+    if (targetMatched.length === 0) {
+      return {
+        matched: false,
+        matchedKeywords: [],
+        rejectReason: 'Không trùng bất kỳ từ khóa nào trong danh sách bạn đã cài đặt',
+      }
+    }
+
+    return {
+      matched: true,
+      matchedKeywords: targetMatched,
+    }
+  }
+
+  // ==========================================
+  // CHẾ ĐỘ: TUYỂN DỤNG & VIỆC LÀM (RECRUITMENT)
+  // ==========================================
   // Nhận diện nếu bài là câu hỏi tìm việc của ứng viên (VD: "Có cty nào tuyển nữ ko", "Tuyển nam có cty nào thời vụ ko")
   const isCandidateInquiryMatch =
     CANDIDATE_INQUIRY_PATTERN.test(normContent) || CANDIDATE_INQUIRY_PATTERN.test(teencodeContent)
@@ -355,6 +549,32 @@ export function evaluatePostMatch(
 
   // 2. Kiểm tra bộ nhận diện bài viết bán hàng của Shop & bài đăng Tuyển dụng của HR/Công ty
   if (config.autoFilterSpam !== false) {
+    // Chặn triệt để 100% tất cả các bài viết cho thuê phòng trọ, nhà trọ, tìm phòng trọ, ở ghép
+    if (isRoomRentalPost(normContent, teencodeContent)) {
+      return {
+        matched: false,
+        matchedKeywords: [],
+        rejectReason: 'Phát hiện bài viết cho thuê phòng trọ/nhà trọ/ở ghép/bất động sản',
+      }
+    }
+
+    // Chặn triệt để 100% tất cả các bài viết quảng cáo dịch vụ xe ghép, taxi, nhà xe, vận tải
+    if (isTransportServicePost(normContent, teencodeContent)) {
+      return {
+        matched: false,
+        matchedKeywords: [],
+        rejectReason: 'Phát hiện bài viết dịch vụ xe ghép/taxi/nhà xe/vận chuyển hành khách',
+      }
+    }
+
+    if (authorName && TRANSPORT_AUTHOR_PATTERN.test(normalizeText(authorName))) {
+      return {
+        matched: false,
+        matchedKeywords: [],
+        rejectReason: `Phát hiện tài khoản nhà xe/dịch vụ xe ghép/taxi ("${authorName}")`,
+      }
+    }
+
     if (authorName && RECRUITER_AUTHOR_PATTERN.test(normalizeText(authorName))) {
       return {
         matched: false,
@@ -366,11 +586,20 @@ export function evaluatePostMatch(
     // Tự động lọc các bài viết quá dài (quy tắc: bản tin tuyển dụng dài của HR/đối thủ)
     const cleanWords = getCleanPostWords(content, authorName, groupName)
     const maxWords = (config.maxPostLength && config.maxPostLength > 0) ? config.maxPostLength : 30
-    if (cleanWords.length > maxWords) {
+    if (!isCandidateSeeking && cleanWords.length > maxWords) {
       return {
         matched: false,
         matchedKeywords: [],
         rejectReason: `Bài viết dài hơn ${maxWords} từ (${cleanWords.length} từ - bản tin tuyển dụng/JD dài của HR)`,
+      }
+    }
+
+    // Nếu là ứng viên tìm việc thật nhưng bài viết dài bất thường (> 150 từ, khả năng là HR ngụy trang JD)
+    if (isCandidateSeeking && cleanWords.length > 150) {
+      return {
+        matched: false,
+        matchedKeywords: [],
+        rejectReason: `Bài viết dài bất thường (${cleanWords.length} từ - vượt quá độ dài bài tìm việc)`,
       }
     }
 
@@ -682,6 +911,34 @@ export function normalizePostUrl(url: string): string {
 }
 
 /**
+ * Trích xuất canonical Facebook post ID từ URL bài viết Facebook:
+ * - /posts/123456789
+ * - /permalink/123456789
+ * - multi_permalinks=123456789
+ * - story_fbid=123456789
+ * - fbid=123456789
+ */
+export function extractFacebookPostId(url?: string): string | null {
+  if (!url) return null
+  const trimmed = url.trim()
+  if (!trimmed) return null
+
+  const pathMatch = trimmed.match(/\/(?:posts|permalink)\/(\d+)/i)
+  if (pathMatch) return pathMatch[1]
+
+  const multiMatch = trimmed.match(/multi_permalinks=(\d+)/i)
+  if (multiMatch) return multiMatch[1]
+
+  const storyMatch = trimmed.match(/story_fbid=(\d+)/i)
+  if (storyMatch) return storyMatch[1]
+
+  const fbidMatch = trimmed.match(/[?&]fbid=(\d+)/i)
+  if (fbidMatch) return fbidMatch[1]
+
+  return null
+}
+
+/**
  * Kiểm tra xem URL có phải là link trực tiếp đến bài viết trong nhóm hay không.
  * TUYỆT ĐỐI LOẠI TRỪ nếu chỉ là link nhóm thuần túy (/groups/<id>/ hoặc không có ID bài viết).
  */
@@ -705,44 +962,124 @@ export function isExactPostUrl(url?: string): boolean {
 
 /** Các mẫu bình luận của HR/đối thủ (trả lời ứng viên hoặc cmt tuyển ké dạo) */
 export const HR_COMMENT_PATTERN =
-  /\b(?:check\s*(?:ib|inbox)|da\s*(?:ib|inbox)|(?:ib|inbox|nhan\s*tin)\s*(?:minh|anh|chi|em)\s*(?:tu\s*van|nhe|nha|di|trao\s*doi)|lien\s*he\s*zalo|nhan\s*zalo|ben\s*(?:minh|anh|chi|em)\s*(?:dang|can)?\s*tuyen)\b/i
+  /\b(?:check\s*(?:ib|inbox|tin\s*nhan)|da\s*(?:ib|inbox|nhan\s*tin)|(?:da\s*)?check\s*(?:tin\s*nhan\s*cho|tn\s*cho)|(?:ib|inbox|nhan\s*tin)\s*(?:cho\s*)?(?:minh|anh|chi)\s*(?:tu\s*van|de\s*trao\s*doi|nhe|nha)|lien\s*he\s*zalo|nhan\s*zalo|ben\s*(?:minh|anh|chi)\s*(?:dang|can)?\s*tuyen)\b/i
 
 /** Các mẫu bình luận xin việc đặc trưng của Ứng viên */
 export const CANDIDATE_COMMENT_PATTERNS = [
-  /\b(?:xin\s*slot|cho\s*e(?:m)?\s*(?:xin\s*)?(?:1\s*)?slot|e(?:m)?\s*xin\s*slot|xin\s*1\s*slot|xin\s*chan|xin\s*ve|cho\s*e(?:m)?\s*1\s*ve)\b/i,
-  /\b(?:con\s*tuyen\s*(?:khong|ko|k|hong|ạ)|còn\s*tuyển\s*(?:không|ko|k|ạ)|con\s*nhan\s*(?:khong|ko|k|ạ)|còn\s*nhận\s*(?:không|ko|k|ạ)|con\s*ca|còn\s*ca)\b/i,
-  /\b(?:inbox\s*e(?:m)?|ib\s*e(?:m)?|check\s*ib\s*e(?:m)?|rep\s*e(?:m)?|ib\s*minh|inbox\s*minh|check\s*tin\s*nhan)\b/i,
-  /\b(?:xin\s*info|xin\s*thong\s*tin|xin\s*jd|chi\s*tiet\s*cong\s*viec|cong\s*viec\s*the\s*nao)\b/i,
-  /\b(?:chua\s*du\s*18|chưa\s*đủ\s*18|\b1[67]\s*tuoi|\b1[67]t\b|nam\s*(?:duoc|nhan)\s*(?:ko|k|khong)|nu\s*(?:duoc|nhan)\s*(?:ko|k|khong)|2k[6789]\s*(?:nhan|duoc))\b/i,
-  /\b(?:xin\s*viec|xin\s*việc|tim\s*viec|tìm\s*việc|can\s*viec|cần\s*việc|xin\s*di\s*lam|xin\s*đi\s*làm|di\s*lam\s*ngay|đi\s*làm\s*ngay|nop\s*cv|nộp\s*cv|apply)\b/i,
-  /\b(?:thoi\s*vu|thời\s*vụ|ca\s*ngay|ca\s*dem|ca\s*đêm|co\s*coc\s*ko|có\s*cọc\s*không|ho\s*tro\s*an\s*o|hỗ\s*trợ\s*ăn\s*ở)\b/i,
-  /\b(?:quan\s*tam|cho\s*e(?:m)?\s*dang\s*ky|cho\s*em\s*đăng\s*ký)\b/i,
+  /\b(?:xin\s*slot|cho\s*e(?:m)?\s*(?:xin\s*)?(?:\d+\s*)?slot|e(?:m)?\s*(?:xin\s*)?(?:\d+\s*)?slot|xin\s*1\s*slot|xin\s*chan|xin\s*ve|cho\s*e(?:m)?\s*(?:xin\s*)?(?:\d+\s*)?(?:ve|chan))\b/i,
+  /\b(?:con\s*(?:tuyen|nhan|ca|slot|cho)|còn\s*(?:tuyển|nhận|ca|slot|chỗ))\b/i,
+  /\b(?:inbox\s*e(?:m)?|ib\s*e(?:m)?|check\s*ib\s*e(?:m)?|rep\s*e(?:m)?|ib\s*minh|inbox\s*minh|check\s*tin\s*nhan|\bib\s*(?:a|ạ|vs|voi|\.)?|\binbox\s*(?:a|ạ|vs|voi|\.)?)\b/i,
+  /\b(?:xin\s*info|xin\s*thong\s*tin|xin\s*tt|cho\s*e(?:m)?\s*(?:xin\s*)?tt|xin\s*jd|chi\s*tiet\s*cong\s*viec|cong\s*viec\s*the\s*nao|lam\s*o\s*dau|dia\s*chi\s*o\s*dau|cv\s*gi\s*vay|lam\s*gi\s*vay)\b/i,
+  /\b(?:chua\s*du\s*18|chưa\s*đủ\s*18|\b1[567]\s*(?:tuoi|t\b)|nam\s*(?:duoc|nhan)\s*(?:ko|k|khong|ạ)|nu\s*(?:duoc|nhan)\s*(?:ko|k|khong|ạ)|2k[56789]\s*(?:nhan|duoc)|cap\s*doi|ca\s*doi\s*(?:nhan|duoc))\b/i,
+  /\b(?:xin\s*viec|xin\s*việc|tim\s*viec|tìm\s*việc|can\s*viec|cần\s*việc|xin\s*di\s*lam|xin\s*đi\s*làm|di\s*lam\s*ngay|đi\s*làm\s*ngay|nop\s*cv|nộp\s*cv|apply|muon\s*di\s*lam)\b/i,
+  /\b(?:thoi\s*vu|thời\s*vụ|ca\s*ngay|ca\s*dem|ca\s*đêm|co\s*coc\s*ko|có\s*cọc\s*không|ho\s*tro\s*an\s*o|hỗ\s*trợ\s*ăn\s*ở|bao\s*an\s*o)\b/i,
+  /\b(?:quan\s*tam|qtam|\bqt\b|q\s*tam|cho\s*e(?:m)?\s*dang\s*ky|cho\s*em\s*đăng\s*ký)\b/i,
+  /^(?:\.|\.\.+|cham|chấm)$/i,
 ]
 
 /**
- * Đánh giá xem một bình luận có phải là của Ứng viên thật sự xin việc hay không
+ * Đánh giá xem một bình luận có phải là của Ứng viên thật sự xin việc hoặc khách hàng Spa hay không
  */
 export function evaluateCandidateComment(
   content: string,
   authorName?: string,
-  customKeywords?: string[]
+  customKeywords?: string[],
+  industryMode: 'RECRUITMENT' | 'SPA_BEAUTY' = 'RECRUITMENT'
 ): { matched: boolean; matchedKeywords: string[] } {
   const norm = normalizeText(content)
   const teencode = normalizeTeencode(norm)
 
+  // ==========================================
+  // CHẾ ĐỘ: SPA & LÀM ĐẸP (SPA_BEAUTY)
+  // ==========================================
+  if (industryMode === 'SPA_BEAUTY') {
+    // 1. Bỏ qua nếu tác giả là Spa / TMV / Nail / Mi đối thủ hoặc Nhà xe/Taxi
+    if (authorName && (SPA_AUTHOR_PATTERN.test(normalizeText(authorName)) || TRANSPORT_AUTHOR_PATTERN.test(normalizeText(authorName)))) {
+      return { matched: false, matchedKeywords: [] }
+    }
+
+    // 2. Bỏ qua nếu cmt là của đối thủ vào lôi kéo / cướp khách / trả lời khách
+    const SPA_SELLER_COMMENT_PATTERN =
+      /\b(?:qua\s*(?:em|spa\s*em|ben\s*em)|ghe\s*(?:em|spa\s*em|ben\s*em)|inbox\s*e\s*tu\s*van|ib\s*(?:e|minh)\s*tu\s*van|ben\s*minh\s*(?:co|nhan)|ben\s*e\s*(?:co|nhan)|e\s*co\s*nhan|check\s*ib|da\s*ib)\b/i
+    if (SPA_SELLER_COMMENT_PATTERN.test(norm)) {
+      return { matched: false, matchedKeywords: [] }
+    }
+
+    // 3. Bỏ qua nếu là phòng trọ hoặc xe ghép
+    const ROOM_INQUIRY_PATTERN =
+      /\b(?:con\s*phong\s*k[ho]|gia\s*phong|o\s*duoc\s*may\s*nguoi|dien\s*nuoc\s*the\s*nao|phong\s*o\s*dau|co\s*cho\s*o\s*ghep\s*ko|cho\s*e\s*xem\s*phong|thue\s*phong|xem\s*phong)\b/i
+    if (ROOM_INQUIRY_PATTERN.test(norm) || ROOM_INQUIRY_PATTERN.test(teencode)) {
+      return { matched: false, matchedKeywords: [] }
+    }
+    const TRANSPORT_INQUIRY_PATTERN =
+      /\b(?:con\s*(?:cho|ghe)\s*k[ho]|co\s*xe\s*(?:ve|di)\b|may\s*gio\s*(?:chay|co\s*xe)|gia\s*ve|bao\s*xe\s*bao\s*nhieu|don\s*o\s*dau)\b/i
+    if (TRANSPORT_INQUIRY_PATTERN.test(norm) || TRANSPORT_INQUIRY_PATTERN.test(teencode)) {
+      return { matched: false, matchedKeywords: [] }
+    }
+
+    // 4. Khách hỏi giá, hỏi liệu trình, hỏi dịch vụ Spa (Khách nét trong Spa)
+    const SPA_LEAD_PATTERNS = [
+      /\b(?:gia\s*sao|xin\s*gia|ib\s*gia|inbox\s*gia|bao\s*nhieu\s*tien|bao\s*nhieu\s*1\s*buoi|bao\s*nhieu\s*tien\s*1\s*buoi|may\s*buoi|lieu\s*trinh|o\s*dau\s*vay|dia\s*chi\s*o\s*dau|o\s*dau\s*a|tu\s*van\s*e|tu\s*van\s*minh|co\s*dau\s*ko|co\s*het\s*khong)\b/i,
+      /\b(?:tri\s*mun|nan\s*mun|triet\s*long|tam\s*trang|cham\s*soc\s*da|lam\s*nail|noi\s*mi|goi\s*dau\s*duong\s*sinh)\b/i,
+    ]
+    const matchedKeywords: string[] = []
+    for (const pattern of SPA_LEAD_PATTERNS) {
+      const m = norm.match(pattern) || teencode.match(pattern)
+      if (m) {
+        matchedKeywords.push(m[0])
+      }
+    }
+
+    // 5. Kiểm tra từ khóa riêng người dùng nhập
+    if (customKeywords && customKeywords.length > 0) {
+      for (const kw of customKeywords) {
+        const nkw = normalizeText(kw.trim())
+        if (nkw && (norm.includes(nkw) || teencode.includes(nkw))) {
+          matchedKeywords.push(kw.trim())
+        }
+      }
+    }
+
+    // 6. Kiểm tra số điện thoại / Zalo để lại
+    if (/(?:zalo|sdt|lh|lien\s*he|e|em)?\s*:?\s*(?:0\d{9})\b/i.test(content)) {
+      matchedKeywords.push('Để lại SĐT/Zalo')
+    }
+
+    if (matchedKeywords.length > 0) {
+      return { matched: true, matchedKeywords: Array.from(new Set(matchedKeywords)) }
+    }
+
+    return { matched: false, matchedKeywords: [] }
+  }
+
+  // ==========================================
+  // CHẾ ĐỘ: TUYỂN DỤNG & VIỆC LÀM (RECRUITMENT)
+  // ==========================================
   // 1. Bỏ qua nếu là HR/đối thủ phản hồi (check ib, đã ib, liên hệ zalo...)
   if (HR_COMMENT_PATTERN.test(content) || HR_COMMENT_PATTERN.test(norm)) {
     return { matched: false, matchedKeywords: [] }
   }
 
-  // 2. Bỏ qua nếu tên tác giả cmt là HR/tuyển dụng
-  if (authorName && RECRUITER_AUTHOR_PATTERN.test(normalizeText(authorName))) {
+  // 2. Bỏ qua nếu tên tác giả cmt là HR/tuyển dụng hoặc Nhà xe/Taxi
+  if (authorName && (RECRUITER_AUTHOR_PATTERN.test(normalizeText(authorName)) || TRANSPORT_AUTHOR_PATTERN.test(normalizeText(authorName)))) {
     return { matched: false, matchedKeywords: [] }
   }
 
   // 3. Bỏ qua nếu là hỏi giá mua hàng của shop (áo này bao nhiêu, freeship không, ib giá...)
   const SHOP_INQUIRY_PATTERN = /\b(?:gia\s*bao\s*nhieu|bao\s*nhieu\s*tien|co\s*freeship|ship\s*ve|ib\s*gia|bao\s*tien|mua\s*hang|gia\s*sao)\b/i
   if (SHOP_INQUIRY_PATTERN.test(norm)) {
+    return { matched: false, matchedKeywords: [] }
+  }
+
+  // 3b. Bỏ qua nếu là hỏi thuê phòng trọ (còn phòng không, giá phòng sao, ib giá phòng, ở được mấy người...)
+  const ROOM_INQUIRY_PATTERN = /\b(?:con\s*phong\s*k[ho]|gia\s*phong|o\s*duoc\s*may\s*nguoi|dien\s*nuoc\s*the\s*nao|phong\s*o\s*dau|co\s*cho\s*o\s*ghep\s*ko|cho\s*e\s*xem\s*phong|thue\s*phong|xem\s*phong)\b/i
+  if (ROOM_INQUIRY_PATTERN.test(norm) || ROOM_INQUIRY_PATTERN.test(teencode)) {
+    return { matched: false, matchedKeywords: [] }
+  }
+
+  // 3c. Bỏ qua nếu là hỏi đặt xe ghép / taxi (có xe về ... ko, mấy giờ có xe, bao xe bao nhiêu...)
+  const TRANSPORT_INQUIRY_PATTERN = /\b(?:con\s*(?:cho|ghe)\s*k[ho]|co\s*xe\s*(?:ve|di)\b|may\s*gio\s*(?:chay|co\s*xe)|gia\s*ve|bao\s*xe\s*bao\s*nhieu|don\s*o\s*dau)\b/i
+  if (TRANSPORT_INQUIRY_PATTERN.test(norm) || TRANSPORT_INQUIRY_PATTERN.test(teencode)) {
     return { matched: false, matchedKeywords: [] }
   }
 
@@ -799,6 +1136,7 @@ export class ScannerService {
 
   /** Validates and persists config. Returns error message when invalid. */
   saveConfig(input: {
+    industryMode?: 'RECRUITMENT' | 'SPA_BEAUTY'
     groups: string[]
     keywords: string[]
     intentKeywords?: string[]
@@ -833,6 +1171,7 @@ export class ScannerService {
     const maxPostAgeDays = Math.max(1, Math.min(30, Math.floor(Number(input.maxPostAgeDays) || 3)))
     const maxPostLength = Math.max(0, Math.floor(Number(input.maxPostLength) || 0))
     this.store.updateScannerConfig({
+      industryMode: input.industryMode ?? 'RECRUITMENT',
       groups,
       keywords,
       intentKeywords,
@@ -960,6 +1299,19 @@ export class ScannerService {
       if (!stoppedByUs) browserClosedExternally = true
     })
 
+    // Tự động đóng các tab popup mở ngoài ý muốn để trình duyệt luôn chỉ giữ duy nhất 1 tab
+    context.on('page', async (newPage) => {
+      try {
+        await sleep(500)
+        if (!newPage.isClosed() && newPage !== page) {
+          const url = newPage.url()
+          if (url === 'about:blank' || !url.includes('facebook.com')) {
+            await newPage.close().catch(() => {})
+          }
+        }
+      } catch { }
+    })
+
     // Bật chế độ tiết kiệm RAM: chặn video/reels tự tải ngầm
     await this.enableMemorySaver(page)
     // Cài đặt bộ lắng nghe phát hiện người dùng can thiệp để tạm dừng 30s
@@ -1050,15 +1402,29 @@ export class ScannerService {
           break
         }
 
-        // Dọn dẹp DOM & giải phóng RAM định kỳ sau mỗi 2 nhóm
+        // Đảm bảo chỉ có 1 tab duy nhất, đóng sạch tab thừa nếu có popup vô tình mở ra
+        try {
+          const allPages = context.pages()
+          if (allPages.length > 1) {
+            for (const p of allPages) {
+              if (p !== page && !p.isClosed()) {
+                await p.close().catch(() => {})
+              }
+            }
+          }
+        } catch { }
+
+        // Giải phóng RAM định kỳ sau mỗi 2 nhóm qua V8 Garbage Collector mà KHÔNG cần đóng/mở tab mới
         if (groupsScanned > 0 && groupsScanned % 2 === 0) {
           this.log(`🧹 Đang thu hồi bộ nhớ RAM (${groupsScanned}/${finalGroupList.length} nhóm)...`)
           try {
-            await page.close().catch(() => { })
-            page = await context.newPage()
-            await this.enableMemorySaver(page)
+            const client = await page.context().newCDPSession(page).catch(() => null)
+            if (client) {
+              await client.send('HeapProfiler.collectGarbage').catch(() => {})
+              await client.detach().catch(() => {})
+            }
           } catch (e) {
-            console.warn('[Scanner] Failed to recycle tab:', (e as Error).message)
+            console.warn('[Scanner] Failed to collect garbage:', (e as Error).message)
           }
         }
 
@@ -1087,7 +1453,7 @@ export class ScannerService {
           }
           this.log(`⚠️ Bỏ qua nhóm ${groupUrl}: ${(err as Error).message}`)
         }
-        await sleep(randomBetween(5000, 12000))
+        await sleep(randomBetween(2500, 4500))
       }
 
       if (this.isRunning() && !browserClosedExternally) {
@@ -1115,7 +1481,7 @@ export class ScannerService {
       // Thử reload lại một lần nếu gặp lỗi tải trang
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => { })
     })
-    await sleep(randomBetween(3000, 5000))
+    await sleep(randomBetween(1500, 2500))
 
     if (page.isClosed()) throw new Error('PAGE_CRASHED')
 
@@ -1133,8 +1499,11 @@ export class ScannerService {
     // Facebook virtualizes the feed (old posts leave the DOM), so accumulate posts across scroll rounds
     const collected = new Map<string, RawPost>()
     const maxAgeDays = config.maxPostAgeDays ?? 3
-    const MAX_CONSECUTIVE_OLD_POSTS = 25
-    let consecutiveOldPosts = 0
+    const MAX_CONSECUTIVE_OLD_POSTS = 5
+    let consecutiveOldOrScannedPosts = 0
+    const existingLeads = this.store.getLeads()
+    const scannedPostIds = new Set(this.store.getScannedPostIds())
+    const newlyScannedIds: string[] = []
 
     const collect = async (): Promise<boolean> => {
       try {
@@ -1152,6 +1521,17 @@ export class ScannerService {
           }
           if (document.body && document.body.style.overflow === 'hidden') document.body.style.overflow = ''
           if (document.documentElement && document.documentElement.style.overflow === 'hidden') document.documentElement.style.overflow = ''
+
+          // 2. Tự động bấm "Xem thêm" / "See more" trên nội dung bài viết để mở bung toàn bộ chữ (chỉ bấm 1 lần duy nhất)
+          const buttons = Array.from(document.querySelectorAll('div[role="button"], span[role="button"]')) as HTMLElement[]
+          for (const btn of buttons) {
+            if (btn.getAttribute('data-agy-clicked')) continue
+            const txt = (btn.innerText || btn.textContent || '').trim().toLowerCase()
+            if (txt === 'xem thêm' || txt === 'see more') {
+              btn.setAttribute('data-agy-clicked', 'true')
+              try { btn.click() } catch { }
+            }
+          }
         })
         await sleep(100)
       } catch (err) { }
@@ -1159,26 +1539,41 @@ export class ScannerService {
       // 1. Quét bình luận trước để biết bài viết nào đang có người cmt xin việc
       const matchedCommentsByPostUrl = new Map<string, Array<{ authorName: string; authorUrl?: string; content: string; matchedKeywords: string[] }>>()
 
+      const defaultCandidateCommentKws = config.industryMode === 'SPA_BEAUTY' ? [
+        'gia sao', 'giá sao', 'xin gia', 'xin giá', 'ib gia', 'ib giá', 'inbox gia', 'inbox giá',
+        'bao nhieu tien', 'bao nhiêu tiền', 'bao nhieu 1 buoi', 'bao nhiêu 1 buổi', 'may buoi', 'mấy buổi',
+        'o dau vay', 'ở đâu vậy', 'dia chi o dau', 'địa chỉ ở đâu', 'o dau a', 'ở đâu ạ',
+        'tu van', 'tư vấn', 'tu van em', 'tư vấn em', 'co dau ko', 'có đau không',
+        'tri mun', 'trị mụn', 'nan mun', 'nặn mụn', 'triet long', 'triệt lông',
+        'lam nail', 'làm nail', 'noi mi', 'nối mi', 'cham soc da', 'chăm sóc da'
+      ] : [
+        'xin viec', 'xin việc', 'tim viec', 'tìm việc', 'can viec', 'cần việc',
+        'con tuyen', 'còn tuyển', 'con tuyen ko', 'còn tuyển không', 'con nhan ko', 'còn nhận không',
+        'con khong a', 'còn không ạ', 'con ko a', 'còn ko ạ', 'con ca', 'còn ca',
+        'xin jd', 'apply', 'nop cv', 'nộp cv', 'xin info', 'xin tt', 'xin thong tin', 'cho e xin tt', 'cho em xin tt',
+        'ib', 'inbox', 'quan tam', 'quan tâm', 'qtam', 'e quan tam', 'em quan tam',
+        'nhan nam', 'nhan nu', 'nhận nam', 'nhận nữ', 'nam duoc ko', 'nam được không',
+        'nu duoc ko', 'nữ được không', 'chua du 18', 'chưa đủ 18', 'du 18 tuoi',
+        'ca dem', 'ca ngay', 'thoi vu', 'thời vụ', 'co nhan thoi vu ko',
+        'lam o dau', 'làm ở đâu', 'cty nao', 'công ty nào', 'cv gi', 'công việc gì',
+        'xin slot', 'e xin slot', 'em xin slot', 'cho e 1 slot', '1 slot',
+        'di lam ngay', 'đi làm ngay', 'di lam luon', 'đi làm luôn'
+      ]
+      const commentFilterKws = Array.from(new Set([
+        ...(config.commentKeywords || []),
+        ...(config.keywords || []),
+        ...defaultCandidateCommentKws
+      ]))
+
       if (config.scanComments || (config.commentKeywords && config.commentKeywords.length > 0)) {
         const comments = await this.extractComments(page)
-        const defaultCandidateCommentKws = [
-          'xin viec', 'xin việc', 'tim viec', 'tìm việc', 'con tuyen', 'còn tuyển',
-          'con tuyen ko', 'còn tuyển không', 'con nhan ko', 'còn nhận không',
-          'xin jd', 'apply', 'nop cv', 'xin info cong viec', 'xin thong tin cong viec',
-          'nhan nam', 'nhan nu', 'nhận nam', 'nhận nữ', 'nam duoc ko', 'nam được không',
-          'nu duoc ko', 'nữ được không', 'chua du 18', 'chưa đủ 18', 'du 18 tuoi',
-          'con ca', 'còn ca', 'ca dem', 'ca ngay', 'thoi vu', 'thời vụ',
-          'co coc ko', 'có cọc không', 'lam duoc khong', 'làm được không', 'xin slot'
-        ]
-        const commentFilterKws = (config.commentKeywords && config.commentKeywords.length > 0)
-          ? config.commentKeywords
-          : [...(config.keywords || []), ...defaultCandidateCommentKws]
 
         for (const comment of comments) {
           const evalCmt = evaluateCandidateComment(
             comment.content,
             comment.authorName,
-            config.commentKeywords,
+            commentFilterKws,
+            config.industryMode
           )
           if (evalCmt.matched && evalCmt.matchedKeywords.length > 0) {
             const cleanUrl = normalizePostUrl(comment.postUrl)
@@ -1206,21 +1601,24 @@ export class ScannerService {
           continue
         }
 
+        const postId = extractFacebookPostId(post.postUrl)
         const id = this.buildLeadId(post)
         if (!collected.has(id)) {
           collected.set(id, post)
           const cleanUrl = normalizePostUrl(post.postUrl)
           processedPostUrls.add(cleanUrl)
 
-          // NẾU BÀI NÀY ĐÃ TỪNG ĐƯỢC BẮT VÀ LƯU VÀO DANH SÁCH TỪ TRƯỚC:
-          // BỎ QUA NGAY LẬP TỨC! Tuyệt đối không quét lại bài cũ đã tìm được!
-          const existingLeads = this.store.getLeads()
+          // 1. NẾU BÀI NÀY ĐÃ TỪNG ĐƯỢC BẮT HOẶC ĐÃ QUÉT QUA Ở CÁC LƯỢT TRƯỚC:
+          // BỎ QUA NGAY LẬP TỨC! Tuyệt đối không quét lại bài cũ!
           const normAuthor = normalizeText(post.authorName || '')
           const normSnippet = normalizeText(post.content || '').slice(0, 50)
 
-          const isAlreadyScraped = existingLeads.some(l => {
+          const isAlreadyInLeads = existingLeads.some(l => {
             if (l.id === id) return true
-            // Chỉ kiểm tra trùng URL đối với bài viết gốc, không áp dụng cho các lead từ cmt
+            const lPostId = extractFacebookPostId(l.postUrl)
+            if (lPostId && postId && lPostId === postId && !l.id.startsWith('fb_cmt_') && !id.startsWith('fb_cmt_')) {
+              return true
+            }
             if (!l.id.startsWith('fb_cmt_') && !id.startsWith('fb_cmt_')) {
               if (l.postUrl && post.postUrl && l.postUrl.split('?')[0] === post.postUrl.split('?')[0] && !l.postUrl.endsWith('/groups/')) {
                 return true
@@ -1233,23 +1631,34 @@ export class ScannerService {
             return authorMatch && contentMatch
           })
 
-          if (isAlreadyScraped) {
-            this.log(`⏩ [Đã có trong danh sách]: "${post.authorName}" -> Bỏ qua, lướt tiếp...`)
+          const isPreviouslyScanned = (postId && scannedPostIds.has(postId)) || isAlreadyInLeads
+
+          if (isPreviouslyScanned) {
+            consecutiveOldOrScannedPosts++
+            this.log(`⏩ [Đã quét từ trước]: "${post.authorName}" (${consecutiveOldOrScannedPosts}/${MAX_CONSECUTIVE_OLD_POSTS} bài liên tiếp)`)
+            if (consecutiveOldOrScannedPosts >= MAX_CONSECUTIVE_OLD_POSTS && collected.size >= 5) {
+              this.log(`⏱ Gặp ${MAX_CONSECUTIVE_OLD_POSTS} bài liên tiếp đã quét từ trước -> Dừng nhóm để chuyển nhóm mới!`)
+              return true
+            }
             continue
           }
 
-          // Lọc thời gian đăng bài (bỏ qua nếu đăng cũ hơn maxAgeDays)
+          // 2. Lọc thời gian đăng bài (bỏ qua nếu đăng cũ hơn maxAgeDays)
           const ageDays = parsePostAgeDays(post.postTimeText)
           if (ageDays !== null && ageDays > maxAgeDays) {
-            consecutiveOldPosts++
-            this.log(`⏳ [Bỏ qua bài cũ] "${post.authorName}" đăng ${post.postTimeText || `${ageDays} ngày trước`} (${consecutiveOldPosts}/${MAX_CONSECUTIVE_OLD_POSTS} bài liên tiếp)`)
-            if (consecutiveOldPosts >= MAX_CONSECUTIVE_OLD_POSTS && collected.size >= 25) {
-              return true // Dừng cuộn nhóm khi đủ bài cũ liên tiếp và đã duyệt ít nhất 25 bài
+            consecutiveOldOrScannedPosts++
+            this.log(`⏳ [Bỏ qua bài cũ] "${post.authorName}" đăng ${post.postTimeText || `${ageDays} ngày trước`} (${consecutiveOldOrScannedPosts}/${MAX_CONSECUTIVE_OLD_POSTS} bài liên tiếp)`)
+            if (consecutiveOldOrScannedPosts >= MAX_CONSECUTIVE_OLD_POSTS && collected.size >= 5) {
+              return true // Dừng cuộn nhóm khi đủ 5 bài cũ liên tiếp và đã duyệt ít nhất 5 bài
             }
             continue
-          } else if (ageDays !== null) {
-            // Gặp bài đăng mới trong hạn quy định -> reset bộ đếm liên tiếp (tránh bị dừng nhầm do bài ghim)
-            consecutiveOldPosts = 0
+          } else {
+            // Gặp bài đăng mới chưa từng quét -> reset bộ đếm bài cũ/đã quét
+            consecutiveOldOrScannedPosts = 0
+            if (postId) {
+              scannedPostIds.add(postId)
+              newlyScannedIds.push(postId)
+            }
           }
 
           // Thu thập ứng viên cmt từ cả post.comments (trực tiếp dưới bài) và matchedCommentsByPostUrl (từ feed stream)
@@ -1257,7 +1666,7 @@ export class ScannerService {
 
           if (post.comments && post.comments.length > 0) {
             for (const cmt of post.comments) {
-              const evalCmt = evaluateCandidateComment(cmt.content, cmt.authorName, config.commentKeywords)
+              const evalCmt = evaluateCandidateComment(cmt.content, cmt.authorName, commentFilterKws, config.industryMode)
               if (evalCmt.matched && evalCmt.matchedKeywords.length > 0) {
                 postCandidateComments.push({
                   authorName: cmt.authorName,
@@ -1318,7 +1727,20 @@ export class ScannerService {
             // NẾU BÀI VIẾT LÀ BÀI DÀI / BẢN TIN TUYỂN DỤNG CỦA HR:
             // BỎ QUA NGƯỜI ĐĂNG BÀI (HR), NHƯNG GIỮ LẠI TẤT CẢ ỨNG VIÊN BÌNH LUẬN XIN VIỆC BÊN DƯỚI!
             const reason = evalResult.rejectReason || ''
-            const isSellerOrSpamPost = reason.includes('bán hàng') || reason.includes('shop') || reason.includes('xã hội') || reason.includes('liệt sĩ')
+            const isSellerOrSpamPost =
+              reason.includes('bán hàng') ||
+              reason.includes('shop') ||
+              reason.includes('xã hội') ||
+              reason.includes('liệt sĩ') ||
+              reason.includes('phòng trọ') ||
+              reason.includes('nhà trọ') ||
+              reason.includes('ở ghép') ||
+              reason.includes('bất động sản') ||
+              reason.includes('xe ghép') ||
+              reason.includes('nhà xe') ||
+              reason.includes('taxi') ||
+              reason.includes('hành khách') ||
+              reason.includes('vận tải')
 
             if (!isSellerOrSpamPost) {
               this.log(`🛡️ [Bỏ qua bài HR dài] "${post.authorName}": ${evalResult.rejectReason}. Giữ lại ${postCandidateComments.length} ứng viên cmt xin việc bên dưới.`)
@@ -1387,7 +1809,7 @@ export class ScannerService {
     await collect()
 
     let stalledRounds = 0
-    const MAX_ROUNDS = 45
+    const MAX_ROUNDS = 80
 
     for (let round = 0; round < MAX_ROUNDS && collected.size < TARGET_POSTS_PER_GROUP; round++) {
       if (!this.isRunning() || page.isClosed()) break
@@ -1397,7 +1819,8 @@ export class ScannerService {
       if (!this.isRunning() || page.isClosed()) break
 
       const sizeBefore = collected.size
-      const scrollAmount = randomBetween(1400, 2000)
+      // Bước cuộn tối ưu cho màn hình desktop (1 bài viết / lần), chống nhảy cóc lướt qua bài viết
+      const scrollAmount = randomBetween(800, 1100)
 
       // 1. Đánh dấu bot đang phát lệnh cuộn để bộ cảm biến hoàn toàn bỏ qua các sự kiện cuộn này
       await page.evaluate(() => {
@@ -1407,11 +1830,7 @@ export class ScannerService {
         w.__agy_bot_acting = Date.now();
       }).catch(() => { })
 
-      // 2. Lăn chuột thật qua CDP Playwright vào giữa Bảng tin nhóm (x=650, y=450)
-      await page.mouse.move(650, 450).catch(() => { })
-      await page.mouse.wheel(0, scrollAmount)
-
-      // 3. Cuộn trang kết hợp DOM: Cuộn mượt và giải phóng khóa cuộn
+      // 2. Cuộn trang mượt mà vừa vặn 1 bước bài viết bằng window.scrollBy (loại bỏ mouse.wheel gây cuộn gấp đôi)
       await page.evaluate((amount) => {
         // Gỡ bỏ triệt để Dialog nếu có để giải phóng lớp overlay chặn cuộn màn hình
         const dialogs = Array.from(document.querySelectorAll('div[role="dialog"], div[aria-modal="true"]')) as HTMLElement[]
@@ -1434,12 +1853,13 @@ export class ScannerService {
         w.__agy_bot_acting = Date.now();
       }, scrollAmount)
 
-      await sleep(randomBetween(1200, 1800))
+      // Chờ trình duyệt render hoàn chỉnh DOM và hydrate nội dung bài viết mới
+      await sleep(randomBetween(750, 1150))
 
       await this.checkUserPause(page)
 
       const reachedOld = await collect()
-      if (reachedOld && collected.size >= 25) {
+      if (reachedOld && collected.size >= 5) {
         this.log(`⏱ Đã phát hiện ${MAX_CONSECUTIVE_OLD_POSTS} bài liên tiếp cũ hơn ${maxAgeDays} ngày -> Dừng cuộn nhóm!`)
         break
       }
@@ -1473,6 +1893,10 @@ export class ScannerService {
         this.log(`[Debug] Đã cuộn hết bảng tin nhóm hoặc không có thêm bài mới sau ${maxStalledLimit} lần cuộn, hoàn thành nhóm.`)
         break
       }
+    }
+
+    if (newlyScannedIds.length > 0) {
+      this.store.addScannedPostIds(newlyScannedIds)
     }
 
     this.log(`📄 ${groupName || groupUrl}: đọc ${collected.size} bài, ${newLeads.length} khách tiềm năng phù hợp`)
@@ -1759,8 +2183,7 @@ export class ScannerService {
   }
 
   private buildLeadId(post: RawPost): string {
-    const idMatch = post.postUrl.match(/(?:posts|permalink)\/(\d+)|story_fbid=(\d+)/)
-    const postId = idMatch?.[1] ?? idMatch?.[2]
+    const postId = extractFacebookPostId(post.postUrl)
     if (postId) return `fb_${postId}`
     const stableSnippet = normalizeText(post.content).slice(0, 80).replace(/\s+/g, '_')
     const stableAuthor = normalizeText(post.authorName || 'unknown').replace(/\s+/g, '_')
@@ -1833,7 +2256,20 @@ export class ScannerService {
           }
         }
 
-        // 3. Link multi_permalinks=...
+        // 3. Quét link bài viết cá nhân/fanpage đăng trong nhóm dạng /<user>/posts/<id>
+        if (!postUrl) {
+          for (const a of allLinks) {
+            const m = a.href.match(/https:\/\/(?:www|m|web)\.facebook\.com\/([a-zA-Z0-9._-]+)\/posts\/(\d+)/i)
+            if (m && !['groups', 'watch', 'stories', 'reel', 'photo', 'events'].includes(m[1].toLowerCase())) {
+              postUrl = currentGroupSlug
+                ? `https://www.facebook.com/groups/${currentGroupSlug}/posts/${m[2]}`
+                : `https://www.facebook.com/${m[1]}/posts/${m[2]}`
+              break
+            }
+          }
+        }
+
+        // 4. Link multi_permalinks=...
         if (!postUrl && currentGroupSlug) {
           for (const a of allLinks) {
             const m = a.href.match(/multi_permalinks=(\d+)/i)
@@ -1888,6 +2324,22 @@ export class ScannerService {
             if (idMatch) {
               postUrl = `https://www.facebook.com/groups/${currentGroupSlug}/posts/${idMatch[1]}`
               break
+            }
+          }
+        }
+
+        // 8. Quét thẻ timestamp (thời gian đăng bài - Facebook luôn đặt link permalink bài viết ở đây)
+        if (!postUrl) {
+          const timeCandidate = allLinks.find(a =>
+            /ngày|giờ|phút|hôm qua|tháng|vừa xong|mins?|hrs?|yesterday|just now/i.test(a.innerText || a.getAttribute('aria-label') || '')
+          )
+          if (timeCandidate) {
+            const tHref = timeCandidate.href || timeCandidate.getAttribute('href') || ''
+            const numMatch = tHref.match(/(\d{8,})/i)
+            if (numMatch && currentGroupSlug) {
+              postUrl = `https://www.facebook.com/groups/${currentGroupSlug}/posts/${numMatch[1]}`
+            } else if (tHref.startsWith('http') && !tHref.endsWith('/groups/')) {
+              postUrl = tHref.split('?')[0]
             }
           }
         }
@@ -1952,10 +2404,25 @@ export class ScannerService {
 
           if (cAuthor && authorName && cAuthor.toLowerCase() === authorName.toLowerCase()) continue
 
+          // Lấy nội dung chữ thực tế của bình luận, loại bỏ tên tác giả và nút Thích/Phản hồi
+          let commentText = ''
+          const dirCandidates = Array.from(cNode.querySelectorAll('div[dir="auto"], span[dir="auto"]')) as HTMLElement[]
+          for (const el of dirCandidates) {
+            const t = (el.innerText || el.textContent || '').trim()
+            if (!t || t === cAuthor) continue
+            if (/^(?:thích|phản hồi|chia sẻ|like|reply|share|\d+\s*(?:giờ|ngày|phút|h|d|m|w|tuần))/i.test(t)) continue
+            commentText = t
+            break
+          }
+          if (!commentText) {
+            commentText = cText.replace(cAuthor, '').replace(/\n\s*(?:Thích|Phản hồi|Chia sẻ|Like|Reply|Share|\d+\s*(?:giờ|ngày|phút|h|d|m|w|tuần)).*$/is, '').trim()
+          }
+          if (!commentText) commentText = cText
+
           comments.push({
             authorName: cAuthor,
             authorUrl: cAuthorUrl,
-            content: cText,
+            content: commentText,
             postUrl,
           })
         }
@@ -2011,6 +2478,17 @@ export class ScannerService {
               break
             }
           }
+          if (!postUrl) {
+            for (const a of allParentLinks) {
+              const m = a.href.match(/https:\/\/(?:www|m|web)\.facebook\.com\/([a-zA-Z0-9._-]+)\/posts\/(\d+)/i)
+              if (m && !['groups', 'watch', 'stories', 'reel', 'photo', 'events'].includes(m[1].toLowerCase())) {
+                postUrl = currentGroupSlug
+                  ? `https://www.facebook.com/groups/${currentGroupSlug}/posts/${m[2]}`
+                  : `https://www.facebook.com/${m[1]}/posts/${m[2]}`
+                break
+              }
+            }
+          }
           if (!postUrl && currentGroupSlug) {
             for (const a of allParentLinks) {
               const m = a.href.match(/multi_permalinks=(\d+)/i) || a.href.match(/[?&]set=gm\.(\d+)/i)
@@ -2020,15 +2498,41 @@ export class ScannerService {
               }
             }
           }
+          if (!postUrl && currentGroupSlug) {
+            const timeA = allParentLinks.find(a =>
+              /ngày|giờ|phút|hôm qua|tháng|vừa xong|mins?|hrs?|yesterday|just now/i.test(a.innerText || a.getAttribute('aria-label') || '')
+            )
+            if (timeA) {
+              const numMatch = (timeA.href || '').match(/(\d{8,})/i)
+              if (numMatch) {
+                postUrl = `https://www.facebook.com/groups/${currentGroupSlug}/posts/${numMatch[1]}`
+              }
+            }
+          }
         }
 
         // Nếu bình luận không liên kết được với bài viết chính xác trong nhóm thì bỏ qua
         if (!postUrl) return
 
+        // Lấy nội dung chữ thực tế của bình luận, loại bỏ tên tác giả và nút Thích/Phản hồi
+        let commentText = ''
+        const dirCandidates = Array.from(node.querySelectorAll('div[dir="auto"], span[dir="auto"]')) as HTMLElement[]
+        for (const el of dirCandidates) {
+          const t = (el.innerText || el.textContent || '').trim()
+          if (!t || t === authorName) continue
+          if (/^(?:thích|phản hồi|chia sẻ|like|reply|share|\d+\s*(?:giờ|ngày|phút|h|d|m|w|tuần))/i.test(t)) continue
+          commentText = t
+          break
+        }
+        if (!commentText) {
+          commentText = text.replace(authorName, '').replace(/\n\s*(?:Thích|Phản hồi|Chia sẻ|Like|Reply|Share|\d+\s*(?:giờ|ngày|phút|h|d|m|w|tuần)).*$/is, '').trim()
+        }
+        if (!commentText) commentText = text
+
         results.push({
           authorName,
           authorUrl,
-          content: text,
+          content: commentText,
           postUrl,
         })
       })

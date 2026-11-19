@@ -113,6 +113,7 @@ export interface AiConfig {
 }
 
 export interface ScannerConfig {
+  industryMode?: 'RECRUITMENT' | 'SPA_BEAUTY';
   groups: string[];
   keywords: string[];
   intentKeywords?: string[];
@@ -379,6 +380,7 @@ export class StoreService {
   // Scanner methods
   getScannerConfig(): ScannerConfig {
     const defaults: ScannerConfig = {
+      industryMode: 'RECRUITMENT',
       groups: [],
       keywords: [],
       intentKeywords: [],
@@ -405,9 +407,30 @@ export class StoreService {
 
   addLead(lead: ScrapedLead): boolean {
     const leads = this.getLeads();
-    // Chống trùng lặp tuyệt đối: Trùng ID, hoặc cùng URL bài viết, hoặc tác giả và nội dung tương đồng
+    // Chống trùng lặp tuyệt đối nhưng không chặn các bình luận khác nhau trên cùng một bài viết
     const isDuplicate = leads.some(l => {
+      // 1. Trùng chính xác ID
       if (l.id === lead.id) return true;
+
+      const isLComment = l.id.startsWith('fb_cmt_');
+      const isNewComment = lead.id.startsWith('fb_cmt_');
+
+      // 2. Nếu cả hai đều là bình luận: chỉ trùng nếu cùng URL bài viết VÀ cùng người bình luận VÀ nội dung tương đồng
+      if (isLComment && isNewComment) {
+        const samePost = l.postUrl && lead.postUrl && l.postUrl.split('?')[0] === lead.postUrl.split('?')[0];
+        const lAuthor = (l.authorName || '').replace(/^[^\w\s]+|\s*\([^)]*\)/g, '').trim().toLowerCase();
+        const newAuthor = (lead.authorName || '').replace(/^[^\w\s]+|\s*\([^)]*\)/g, '').trim().toLowerCase();
+        const sameAuthor = lAuthor.length > 2 && (lAuthor.includes(newAuthor) || newAuthor.includes(lAuthor));
+        const sameContent = l.content.slice(0, 40).trim().toLowerCase() === lead.content.slice(0, 40).trim().toLowerCase();
+        return (samePost && sameAuthor) || (sameAuthor && sameContent);
+      }
+
+      // 3. Nếu một bên là bình luận và một bên là bài viết gốc: KHÔNG coi là trùng lặp!
+      if (isLComment !== isNewComment) {
+        return false;
+      }
+
+      // 4. Nếu cả hai đều là bài viết gốc: trùng URL hoặc trùng tác giả & nội dung
       if (l.postUrl && lead.postUrl && l.postUrl.split('?')[0] === lead.postUrl.split('?')[0] && !l.postUrl.endsWith('/groups/')) {
         return true;
       }
@@ -417,6 +440,7 @@ export class StoreService {
       const contentMatch = l.content.slice(0, 40).trim().toLowerCase() === lead.content.slice(0, 40).trim().toLowerCase();
       return authorMatch && contentMatch;
     });
+
     if (isDuplicate) return false;
     leads.unshift(lead);
     if (leads.length > 1000) leads.pop();
@@ -435,6 +459,22 @@ export class StoreService {
 
   clearLeads(): void {
     (this.store as any).set('leads', []);
+    (this.store as any).set('scannedPostIds', []);
+  }
+
+  getScannedPostIds(): string[] {
+    return (this.store as any).get('scannedPostIds') ?? [];
+  }
+
+  addScannedPostIds(ids: string[]): void {
+    if (!ids || ids.length === 0) return;
+    const current = new Set(this.getScannedPostIds());
+    ids.forEach(id => {
+      if (id) current.add(id);
+    });
+    const arr = Array.from(current);
+    if (arr.length > 5000) arr.splice(0, arr.length - 5000);
+    (this.store as any).set('scannedPostIds', arr);
   }
 
   getAiConfig(): AiConfig {
