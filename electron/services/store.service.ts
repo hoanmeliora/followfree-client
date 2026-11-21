@@ -167,6 +167,142 @@ const schema = {
   },
 }
 
+export function extractFacebookPostId(url?: string): string | null {
+  if (!url) return null
+  const trimmed = url.trim()
+  if (!trimmed) return null
+
+  const pathMatch = trimmed.match(/\/(?:posts|permalink)\/([a-zA-Z0-9]+)/i)
+  if (pathMatch) return pathMatch[1]
+
+  const multiMatch = trimmed.match(/multi_permalinks=([a-zA-Z0-9]+)/i)
+  if (multiMatch) return multiMatch[1]
+
+  const storyMatch = trimmed.match(/story_fbid=([a-zA-Z0-9]+)/i)
+  if (storyMatch) return storyMatch[1]
+
+  const gmMatch = trimmed.match(/[?&]set=gm\.([a-zA-Z0-9]+)/i)
+  if (gmMatch) return gmMatch[1]
+
+  const fbidMatch = trimmed.match(/[?&]fbid=([a-zA-Z0-9]+)/i)
+  if (fbidMatch) return fbidMatch[1]
+
+  const videoMatch = trimmed.match(/\/(?:videos|reel)\/([a-zA-Z0-9]+)/i) || trimmed.match(/[?&]v=([a-zA-Z0-9]+)/i)
+  if (videoMatch) return videoMatch[1]
+
+  return null
+}
+
+export function normalizePostContentForDedup(content?: string): string {
+  if (!content) return ''
+  return content
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/[^a-z0-9]/g, '')
+}
+
+function getCoreContent(content: string): string {
+  if (!content) return ''
+  const parts = content.split(/💬\s*ỨNG VIÊN BÌNH LUẬN XIN VIỆC|\[Ứng viên bình luận xin việc\]/i)
+  return parts[0] || content
+}
+
+function normalizeAuthorName(name?: string): string {
+  if (!name) return ''
+  return name
+    .replace(/^📌\s*/, '')
+    .replace(/^💬\s*/, '')
+    .replace(/\s*\(\d+\s*cmt xin việc\)/i, '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/[^a-z0-9]/g, '')
+    .trim()
+}
+
+function extractGroupIdentifier(url?: string, groupName?: string): string {
+  if (url) {
+    const m = url.match(/groups\/([^/?#]+)/i)
+    if (m) return m[1].toLowerCase()
+  }
+  if (groupName && groupName !== 'Nhóm') {
+    return groupName.trim().toLowerCase()
+  }
+  return ''
+}
+
+export function isSameLead(a: ScrapedLead, b: ScrapedLead): boolean {
+  if (!a || !b) return false
+  if (a.id && b.id && a.id === b.id) return true
+
+  // Kiểm tra nhóm: Nếu 2 bài thuộc 2 NHÓM KHÁC NHAU RÕ RÀNG -> Cho phép lưu cả hai (nhiều nhóm khác nhau thì được)
+  const groupA = extractGroupIdentifier(a.postUrl, a.groupName)
+  const groupB = extractGroupIdentifier(b.postUrl, b.groupName)
+  if (groupA && groupB && groupA !== groupB) {
+    return false
+  }
+
+  // TRONG CÙNG MỘT NHÓM: TUYỆT ĐỐI KHÔNG ĐƯỢC TRÙNG 1 BÀI VIẾT
+  // 1. So sánh Facebook Post ID (chính xác tuyệt đối)
+  const postIdA = extractFacebookPostId(a.postUrl) || (a.id.startsWith('fb_') && !a.id.startsWith('fb_cmt_') ? a.id.replace('fb_', '') : null)
+  const postIdB = extractFacebookPostId(b.postUrl) || (b.id.startsWith('fb_') && !b.id.startsWith('fb_cmt_') ? b.id.replace('fb_', '') : null)
+  if (postIdA && postIdB && postIdA.toLowerCase() === postIdB.toLowerCase()) {
+    return true
+  }
+
+  // 2. So sánh URL bài viết gốc đã chuẩn hóa
+  const cleanUrlA = (a.postUrl || '').replace(/^https?:\/\//i, '').replace(/^(?:www|m|web)\./i, '').split('?')[0].split('#')[0].replace(/\/+$/, '')
+  const cleanUrlB = (b.postUrl || '').replace(/^https?:\/\//i, '').replace(/^(?:www|m|web)\./i, '').split('?')[0].split('#')[0].replace(/\/+$/, '')
+  if (cleanUrlA && cleanUrlB && cleanUrlA === cleanUrlB && !cleanUrlA.endsWith('/groups')) {
+    return true
+  }
+
+  // 3. Nếu một bên là bài viết gốc và một bên là bình luận của bài viết đó trong nhóm -> TRÙNG (bài gốc đã tổng hợp cmt)
+  const isCmtA = a.id.startsWith('fb_cmt_') || a.content.includes('[Ứng viên bình luận xin việc]')
+  const isCmtB = b.id.startsWith('fb_cmt_') || b.content.includes('[Ứng viên bình luận xin việc]')
+  if (isCmtA !== isCmtB) {
+    if (postIdA && postIdB && postIdA.toLowerCase() === postIdB.toLowerCase()) return true
+    if (cleanUrlA && cleanUrlB && cleanUrlA === cleanUrlB && !cleanUrlA.endsWith('/groups')) return true
+  }
+
+  // 4. Nếu cả hai đều là bình luận trong cùng nhóm: trùng nếu cùng bài viết VÀ cùng người bình luận
+  if (isCmtA && isCmtB) {
+    const authA = normalizeAuthorName(a.authorName)
+    const authB = normalizeAuthorName(b.authorName)
+    const samePost = (postIdA && postIdB && postIdA.toLowerCase() === postIdB.toLowerCase()) || (cleanUrlA && cleanUrlB && cleanUrlA === cleanUrlB)
+    if (samePost && authA && authB && authA === authB) return true
+  }
+
+  // 5. So sánh nội dung cốt lõi & tác giả trong cùng một nhóm
+  const coreA = normalizePostContentForDedup(getCoreContent(a.content))
+  const coreB = normalizePostContentForDedup(getCoreContent(b.content))
+
+  if (coreA.length >= 25 && coreB.length >= 25) {
+    if (coreA === coreB) return true
+    const minLen = Math.min(coreA.length, coreB.length)
+    if (minLen >= 40) {
+      const sliceLen = Math.min(minLen, 70)
+      if (coreA.slice(0, sliceLen) === coreB.slice(0, sliceLen)) return true
+    }
+  }
+
+  const normAuthorA = normalizeAuthorName(a.authorName)
+  const normAuthorB = normalizeAuthorName(b.authorName)
+  const isAnonA = !normAuthorA || /nguoithamgiaandanh|thanhviennhom|anonymous|thanhvienandanh/.test(normAuthorA)
+  const isAnonB = !normAuthorB || /nguoithamgiaandanh|thanhviennhom|anonymous|thanhvienandanh/.test(normAuthorB)
+
+  if (!isAnonA && !isAnonB && normAuthorA === normAuthorB) {
+    if (coreA.length >= 20 && coreB.length >= 20 && coreA.slice(0, 25) === coreB.slice(0, 25)) {
+      return true
+    }
+  }
+
+  return false
+}
+
 export class StoreService {
   private store: Store<AppData>
   public activeIpv4Accounts = new Set<string>()
@@ -402,45 +538,23 @@ export class StoreService {
   }
 
   getLeads(): ScrapedLead[] {
-    return (this.store as any).get('leads') ?? [];
+    const rawLeads: ScrapedLead[] = (this.store as any).get('leads') ?? [];
+    // Tự động khử trùng lặp dữ liệu (kể cả dữ liệu cũ đã lưu từ các phiên trước)
+    const deduped: ScrapedLead[] = [];
+    for (const lead of rawLeads) {
+      if (!deduped.some(existing => isSameLead(existing, lead))) {
+        deduped.push(lead);
+      }
+    }
+    if (deduped.length !== rawLeads.length) {
+      (this.store as any).set('leads', deduped);
+    }
+    return deduped;
   }
 
   addLead(lead: ScrapedLead): boolean {
     const leads = this.getLeads();
-    // Chống trùng lặp tuyệt đối nhưng không chặn các bình luận khác nhau trên cùng một bài viết
-    const isDuplicate = leads.some(l => {
-      // 1. Trùng chính xác ID
-      if (l.id === lead.id) return true;
-
-      const isLComment = l.id.startsWith('fb_cmt_');
-      const isNewComment = lead.id.startsWith('fb_cmt_');
-
-      // 2. Nếu cả hai đều là bình luận: chỉ trùng nếu cùng URL bài viết VÀ cùng người bình luận VÀ nội dung tương đồng
-      if (isLComment && isNewComment) {
-        const samePost = l.postUrl && lead.postUrl && l.postUrl.split('?')[0] === lead.postUrl.split('?')[0];
-        const lAuthor = (l.authorName || '').replace(/^[^\w\s]+|\s*\([^)]*\)/g, '').trim().toLowerCase();
-        const newAuthor = (lead.authorName || '').replace(/^[^\w\s]+|\s*\([^)]*\)/g, '').trim().toLowerCase();
-        const sameAuthor = lAuthor.length > 2 && (lAuthor.includes(newAuthor) || newAuthor.includes(lAuthor));
-        const sameContent = l.content.slice(0, 40).trim().toLowerCase() === lead.content.slice(0, 40).trim().toLowerCase();
-        return (samePost && sameAuthor) || (sameAuthor && sameContent);
-      }
-
-      // 3. Nếu một bên là bình luận và một bên là bài viết gốc: KHÔNG coi là trùng lặp!
-      if (isLComment !== isNewComment) {
-        return false;
-      }
-
-      // 4. Nếu cả hai đều là bài viết gốc: trùng URL hoặc trùng tác giả & nội dung
-      if (l.postUrl && lead.postUrl && l.postUrl.split('?')[0] === lead.postUrl.split('?')[0] && !l.postUrl.endsWith('/groups/')) {
-        return true;
-      }
-      const lAuthor = (l.authorName || '').replace(/^[^\w\s]+|\s*\([^)]*\)/g, '').trim().toLowerCase();
-      const newAuthor = (lead.authorName || '').replace(/^[^\w\s]+|\s*\([^)]*\)/g, '').trim().toLowerCase();
-      const authorMatch = lAuthor.length > 2 && (lAuthor.includes(newAuthor) || newAuthor.includes(lAuthor));
-      const contentMatch = l.content.slice(0, 40).trim().toLowerCase() === lead.content.slice(0, 40).trim().toLowerCase();
-      return authorMatch && contentMatch;
-    });
-
+    const isDuplicate = leads.some(l => isSameLead(l, lead));
     if (isDuplicate) return false;
     leads.unshift(lead);
     if (leads.length > 1000) leads.pop();

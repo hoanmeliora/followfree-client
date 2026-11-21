@@ -1,6 +1,6 @@
 import { BrowserContext, Page, Locator } from 'playwright'
 import { createHash } from 'crypto'
-import { StoreService, ScannerConfig, ScrapedLead } from '../store.service'
+import { StoreService, ScannerConfig, ScrapedLead, isSameLead } from '../store.service'
 import { Ipv6Service } from '../ipv6.service'
 import { LocalProxyService } from '../local-proxy.service'
 
@@ -903,37 +903,52 @@ export function normalizeRecipientInput(input: string): string | null {
 /** Chuẩn hóa link bài viết Facebook để khớp bình luận với bài viết gốc */
 export function normalizePostUrl(url: string): string {
   if (!url) return ''
-  const m = url.match(/(https:\/\/[^/]+\/groups\/[^/]+\/(?:posts|permalink)\/\d+)/i)
+  const trimmed = url.trim()
+  const m = trimmed.match(/(https:\/\/[^/]+\/groups\/[^/]+\/(?:posts|permalink)\/[a-zA-Z0-9]+)/i)
   if (m) return m[1]
-  const fbid = url.match(/(?:story_fbid=|fbid=)(\d+)/i)
-  if (fbid) return fbid[1]
-  return url.split('?')[0].split('&')[0]
+  const postId = extractFacebookPostId(trimmed)
+  if (postId) {
+    const gMatch = trimmed.match(/groups\/([^/?#]+)/i)
+    if (gMatch) {
+      return `https://www.facebook.com/groups/${gMatch[1]}/posts/${postId}`
+    }
+    return `https://www.facebook.com/posts/${postId}`
+  }
+  return trimmed.split('?')[0].split('&')[0].replace(/\/+$/, '')
 }
 
 /**
  * Trích xuất canonical Facebook post ID từ URL bài viết Facebook:
- * - /posts/123456789
- * - /permalink/123456789
- * - multi_permalinks=123456789
- * - story_fbid=123456789
- * - fbid=123456789
+ * - /posts/<ID> (kể cả ID số và mã alphanumeric pfbid...)
+ * - /permalink/<ID>
+ * - multi_permalinks=<ID>
+ * - story_fbid=<ID>
+ * - fbid=<ID>
+ * - set=gm.<ID>
+ * - /videos/<ID>, /reel/<ID>, watch/?v=<ID>
  */
 export function extractFacebookPostId(url?: string): string | null {
   if (!url) return null
   const trimmed = url.trim()
   if (!trimmed) return null
 
-  const pathMatch = trimmed.match(/\/(?:posts|permalink)\/(\d+)/i)
+  const pathMatch = trimmed.match(/\/(?:posts|permalink)\/([a-zA-Z0-9]+)/i)
   if (pathMatch) return pathMatch[1]
 
-  const multiMatch = trimmed.match(/multi_permalinks=(\d+)/i)
+  const multiMatch = trimmed.match(/multi_permalinks=([a-zA-Z0-9]+)/i)
   if (multiMatch) return multiMatch[1]
 
-  const storyMatch = trimmed.match(/story_fbid=(\d+)/i)
+  const storyMatch = trimmed.match(/story_fbid=([a-zA-Z0-9]+)/i)
   if (storyMatch) return storyMatch[1]
 
-  const fbidMatch = trimmed.match(/[?&]fbid=(\d+)/i)
+  const gmMatch = trimmed.match(/[?&]set=gm\.([a-zA-Z0-9]+)/i)
+  if (gmMatch) return gmMatch[1]
+
+  const fbidMatch = trimmed.match(/[?&]fbid=([a-zA-Z0-9]+)/i)
   if (fbidMatch) return fbidMatch[1]
+
+  const videoMatch = trimmed.match(/\/(?:videos|reel)\/([a-zA-Z0-9]+)/i) || trimmed.match(/[?&]v=([a-zA-Z0-9]+)/i)
+  if (videoMatch) return videoMatch[1]
 
   return null
 }
@@ -949,15 +964,15 @@ export function isExactPostUrl(url?: string): boolean {
 
   // Loại trừ tuyệt đối nếu là link nhóm thuần túy (không có post/permalink/story ID)
   if (/^https?:\/\/(?:www\.|m\.|web\.)?facebook\.com\/groups\/[^/?#]+\/?(?:[?#].*)?$/i.test(trimmed)) {
-    // Nếu có query param multi_permalinks, story_fbid thì vẫn coi là có ID bài viết
-    if (!/(?:multi_permalinks|story_fbid|fbid)=\d+/i.test(trimmed)) {
+    // Nếu có query param multi_permalinks, story_fbid, set=gm thì vẫn coi là có ID bài viết
+    if (!/(?:multi_permalinks|story_fbid|fbid|set=gm\.)/i.test(trimmed)) {
       return false
     }
   }
 
-  // Bắt buộc phải có định dạng bài viết: /posts/<id>, /permalink/<id>, multi_permalinks, story_fbid
-  return /\/groups\/[^/]+\/(?:posts|permalink)\/\d+/i.test(trimmed) ||
-         /(?:story_fbid|multi_permalinks|fbid)=\d+/i.test(trimmed)
+  // Bắt buộc phải có định dạng bài viết: /posts/<id>, /permalink/<id>, multi_permalinks, story_fbid, set=gm
+  return /\/(?:posts|permalink)\/[a-zA-Z0-9]+/i.test(trimmed) ||
+         /(?:story_fbid|multi_permalinks|fbid|set=gm\.)/i.test(trimmed)
 }
 
 /** Các mẫu bình luận của HR/đối thủ (trả lời ứng viên hoặc cmt tuyển ké dạo) */
@@ -1610,26 +1625,16 @@ export class ScannerService {
 
           // 1. NẾU BÀI NÀY ĐÃ TỪNG ĐƯỢC BẮT HOẶC ĐÃ QUÉT QUA Ở CÁC LƯỢT TRƯỚC:
           // BỎ QUA NGAY LẬP TỨC! Tuyệt đối không quét lại bài cũ!
-          const normAuthor = normalizeText(post.authorName || '')
-          const normSnippet = normalizeText(post.content || '').slice(0, 50)
-
-          const isAlreadyInLeads = existingLeads.some(l => {
-            if (l.id === id) return true
-            const lPostId = extractFacebookPostId(l.postUrl)
-            if (lPostId && postId && lPostId === postId && !l.id.startsWith('fb_cmt_') && !id.startsWith('fb_cmt_')) {
-              return true
-            }
-            if (!l.id.startsWith('fb_cmt_') && !id.startsWith('fb_cmt_')) {
-              if (l.postUrl && post.postUrl && l.postUrl.split('?')[0] === post.postUrl.split('?')[0] && !l.postUrl.endsWith('/groups/')) {
-                return true
-              }
-            }
-            const lNormAuthor = normalizeText(l.authorName || '')
-            const lNormContent = normalizeText(l.content || '')
-            const authorMatch = normAuthor.length > 2 && (lNormAuthor.includes(normAuthor) || normAuthor.includes(lNormAuthor))
-            const contentMatch = normSnippet.length > 10 && lNormContent.includes(normSnippet)
-            return authorMatch && contentMatch
-          })
+          const tempLead: ScrapedLead = {
+            id,
+            authorName: post.authorName,
+            content: post.content,
+            postUrl: post.postUrl,
+            timestamp: Date.now(),
+            status: 'new',
+            matchedKeywords: [],
+          }
+          const isAlreadyInLeads = existingLeads.some(l => isSameLead(l, tempLead))
 
           const isPreviouslyScanned = (postId && scannedPostIds.has(postId)) || isAlreadyInLeads
 
@@ -1715,6 +1720,7 @@ export class ScannerService {
             }
 
             if (this.store.addLead(lead)) {
+              existingLeads.unshift(lead)
               newLeads.push(lead)
               this.pushEvent('scanner:new_lead', lead)
               if (postCandidateComments.length > 0) {
@@ -1759,6 +1765,7 @@ export class ScannerService {
                   status: 'new',
                 }
                 if (this.store.addLead(cmtLead)) {
+                  existingLeads.unshift(cmtLead)
                   newLeads.push(cmtLead)
                   this.pushEvent('scanner:new_lead', cmtLead)
                   this.log(`🎯 [Bắt ứng viên từ cmt bài HR]: "${cmt.authorName}" - "${cmt.content.slice(0, 50)}"`)
@@ -1793,6 +1800,7 @@ export class ScannerService {
                 status: 'new',
               }
               if (this.store.addLead(cmtLead)) {
+                existingLeads.unshift(cmtLead)
                 newLeads.push(cmtLead)
                 this.pushEvent('scanner:new_lead', cmtLead)
                 this.log(`🎯 [Bắt ứng viên từ cmt]: "${cmt.authorName}"`)
@@ -2185,8 +2193,8 @@ export class ScannerService {
   private buildLeadId(post: RawPost): string {
     const postId = extractFacebookPostId(post.postUrl)
     if (postId) return `fb_${postId}`
-    const stableSnippet = normalizeText(post.content).slice(0, 80).replace(/\s+/g, '_')
-    const stableAuthor = normalizeText(post.authorName || 'unknown').replace(/\s+/g, '_')
+    const stableSnippet = (post.content || '').replace(/[^\p{L}\p{N}]/gu, '').toLowerCase().slice(0, 80)
+    const stableAuthor = (post.authorName || 'unknown').replace(/[^\p{L}\p{N}]/gu, '').toLowerCase().slice(0, 30)
     return `fb_${createHash('sha1').update(`${stableAuthor}_${stableSnippet}`).digest('hex').slice(0, 16)}`
   }
 
@@ -2237,7 +2245,7 @@ export class ScannerService {
         // --- TRÍCH XUẤT LINK BÀI VIẾT CHÍNH XÁC (TUYỆT ĐỐI KHÔNG LẤY MỖI LINK NHÓM) ---
         // 1. Quét tất cả thẻ a có chứa cấu trúc /groups/<slug>/(posts|permalink)/<id>
         for (const a of allLinks) {
-          const m = a.href.match(/(https:\/\/[^/]+\/groups\/[^/]+\/(?:posts|permalink)\/\d+)/i)
+          const m = a.href.match(/(https:\/\/[^/]+\/groups\/[^/]+\/(?:posts|permalink)\/([a-zA-Z0-9]+))/i)
           if (m) {
             postUrl = m[1]
             break
@@ -2248,7 +2256,7 @@ export class ScannerService {
         if (!postUrl && currentGroupSlug) {
           for (const a of allLinks) {
             const rawHref = a.getAttribute('href') || ''
-            const m = rawHref.match(/(?:\/groups\/[^/]+)?\/(?:posts|permalink)\/(\d+)/i)
+            const m = rawHref.match(/(?:\/groups\/[^/]+)?\/(?:posts|permalink)\/([a-zA-Z0-9]+)/i)
             if (m) {
               postUrl = `https://www.facebook.com/groups/${currentGroupSlug}/posts/${m[1]}`
               break
@@ -2259,7 +2267,7 @@ export class ScannerService {
         // 3. Quét link bài viết cá nhân/fanpage đăng trong nhóm dạng /<user>/posts/<id>
         if (!postUrl) {
           for (const a of allLinks) {
-            const m = a.href.match(/https:\/\/(?:www|m|web)\.facebook\.com\/([a-zA-Z0-9._-]+)\/posts\/(\d+)/i)
+            const m = a.href.match(/https:\/\/(?:www|m|web)\.facebook\.com\/([a-zA-Z0-9._-]+)\/posts\/([a-zA-Z0-9]+)/i)
             if (m && !['groups', 'watch', 'stories', 'reel', 'photo', 'events'].includes(m[1].toLowerCase())) {
               postUrl = currentGroupSlug
                 ? `https://www.facebook.com/groups/${currentGroupSlug}/posts/${m[2]}`
@@ -2272,7 +2280,7 @@ export class ScannerService {
         // 4. Link multi_permalinks=...
         if (!postUrl && currentGroupSlug) {
           for (const a of allLinks) {
-            const m = a.href.match(/multi_permalinks=(\d+)/i)
+            const m = a.href.match(/multi_permalinks=([a-zA-Z0-9]+)/i)
             if (m) {
               postUrl = `https://www.facebook.com/groups/${currentGroupSlug}/posts/${m[1]}`
               break
@@ -2283,7 +2291,7 @@ export class ScannerService {
         // 4. Link ảnh đính kèm bài viết nhóm (có dạng set=gm.<post_id>)
         if (!postUrl && currentGroupSlug) {
           for (const a of allLinks) {
-            const m = a.href.match(/[?&]set=gm\.(\d+)/i)
+            const m = a.href.match(/[?&]set=gm\.([a-zA-Z0-9]+)/i)
             if (m) {
               postUrl = `https://www.facebook.com/groups/${currentGroupSlug}/posts/${m[1]}`
               break
@@ -2294,7 +2302,7 @@ export class ScannerService {
         // 5. Link story_fbid hoặc fbid
         if (!postUrl) {
           for (const a of allLinks) {
-            const m = a.href.match(/[?&](?:story_fbid|fbid)=(\d+)/i)
+            const m = a.href.match(/[?&](?:story_fbid|fbid)=([a-zA-Z0-9]+)/i)
             if (m) {
               if (currentGroupSlug) {
                 postUrl = `https://www.facebook.com/groups/${currentGroupSlug}/posts/${m[1]}`
@@ -2335,7 +2343,8 @@ export class ScannerService {
           )
           if (timeCandidate) {
             const tHref = timeCandidate.href || timeCandidate.getAttribute('href') || ''
-            const numMatch = tHref.match(/(\d{8,})/i)
+            const pMatch = tHref.match(/\/(?:posts|permalink)\/([a-zA-Z0-9]+)/i)
+            const numMatch = pMatch || tHref.match(/(\d{8,})/i)
             if (numMatch && currentGroupSlug) {
               postUrl = `https://www.facebook.com/groups/${currentGroupSlug}/posts/${numMatch[1]}`
             } else if (tHref.startsWith('http') && !tHref.endsWith('/groups/')) {
@@ -2472,7 +2481,7 @@ export class ScannerService {
         if (parentPost) {
           const allParentLinks = Array.from(parentPost.querySelectorAll('a[href]')) as HTMLAnchorElement[]
           for (const a of allParentLinks) {
-            const m = a.href.match(/(https:\/\/[^/]+\/groups\/[^/]+\/(?:posts|permalink)\/\d+)/i)
+            const m = a.href.match(/(https:\/\/[^/]+\/groups\/[^/]+\/(?:posts|permalink)\/([a-zA-Z0-9]+))/i)
             if (m) {
               postUrl = m[1]
               break
@@ -2480,7 +2489,7 @@ export class ScannerService {
           }
           if (!postUrl) {
             for (const a of allParentLinks) {
-              const m = a.href.match(/https:\/\/(?:www|m|web)\.facebook\.com\/([a-zA-Z0-9._-]+)\/posts\/(\d+)/i)
+              const m = a.href.match(/https:\/\/(?:www|m|web)\.facebook\.com\/([a-zA-Z0-9._-]+)\/posts\/([a-zA-Z0-9]+)/i)
               if (m && !['groups', 'watch', 'stories', 'reel', 'photo', 'events'].includes(m[1].toLowerCase())) {
                 postUrl = currentGroupSlug
                   ? `https://www.facebook.com/groups/${currentGroupSlug}/posts/${m[2]}`
@@ -2491,7 +2500,7 @@ export class ScannerService {
           }
           if (!postUrl && currentGroupSlug) {
             for (const a of allParentLinks) {
-              const m = a.href.match(/multi_permalinks=(\d+)/i) || a.href.match(/[?&]set=gm\.(\d+)/i)
+              const m = a.href.match(/multi_permalinks=([a-zA-Z0-9]+)/i) || a.href.match(/[?&]set=gm\.([a-zA-Z0-9]+)/i) || a.href.match(/[?&](?:story_fbid|fbid)=([a-zA-Z0-9]+)/i)
               if (m) {
                 postUrl = `https://www.facebook.com/groups/${currentGroupSlug}/posts/${m[1]}`
                 break
@@ -2503,7 +2512,8 @@ export class ScannerService {
               /ngày|giờ|phút|hôm qua|tháng|vừa xong|mins?|hrs?|yesterday|just now/i.test(a.innerText || a.getAttribute('aria-label') || '')
             )
             if (timeA) {
-              const numMatch = (timeA.href || '').match(/(\d{8,})/i)
+              const pMatch = (timeA.href || '').match(/\/(?:posts|permalink)\/([a-zA-Z0-9]+)/i)
+              const numMatch = pMatch || (timeA.href || '').match(/(\d{8,})/i)
               if (numMatch) {
                 postUrl = `https://www.facebook.com/groups/${currentGroupSlug}/posts/${numMatch[1]}`
               }

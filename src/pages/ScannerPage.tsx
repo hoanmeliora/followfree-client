@@ -96,6 +96,101 @@ function notifyNewLead(lead: Lead): void {
   else if (Notification.permission !== 'denied') Notification.requestPermission().then((p) => p === 'granted' && show())
 }
 
+function extractPostId(url?: string): string | null {
+  if (!url) return null
+  const trimmed = url.trim()
+  const m = trimmed.match(/\/(?:posts|permalink)\/([a-zA-Z0-9]+)/i) ||
+            trimmed.match(/multi_permalinks=([a-zA-Z0-9]+)/i) ||
+            trimmed.match(/story_fbid=([a-zA-Z0-9]+)/i) ||
+            trimmed.match(/[?&]set=gm\.([a-zA-Z0-9]+)/i) ||
+            trimmed.match(/[?&]fbid=([a-zA-Z0-9]+)/i) ||
+            trimmed.match(/\/(?:videos|reel)\/([a-zA-Z0-9]+)/i) ||
+            trimmed.match(/[?&]v=([a-zA-Z0-9]+)/i)
+  return m ? m[1] : null
+}
+
+function normalizeContent(content?: string): string {
+  if (!content) return ''
+  return content
+    .split(/💬\s*ỨNG VIÊN BÌNH LUẬN XIN VIỆC|\[Ứng viên bình luận xin việc\]/i)[0]
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/[^a-z0-9]/g, '')
+}
+
+function normalizeAuthor(name?: string): string {
+  if (!name) return ''
+  return name
+    .replace(/^📌\s*/, '')
+    .replace(/^💬\s*/, '')
+    .replace(/\s*\(\d+\s*cmt xin việc\)/i, '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/[^a-z0-9]/g, '')
+    .trim()
+}
+
+function extractGroup(url?: string, groupName?: string): string {
+  if (url) {
+    const m = url.match(/groups\/([^/?#]+)/i)
+    if (m) return m[1].toLowerCase()
+  }
+  if (groupName && groupName !== 'Nhóm') {
+    return groupName.trim().toLowerCase()
+  }
+  return ''
+}
+
+function isSameLead(a: Lead, b: Lead): boolean {
+  if (!a || !b) return false
+  if (a.id && b.id && a.id === b.id) return true
+
+  // Kiểm tra nhóm: Nếu 2 bài thuộc 2 NHÓM KHÁC NHAU RÕ RÀNG -> Cho phép lưu cả hai (nhiều nhóm khác nhau thì được)
+  const groupA = extractGroup(a.postUrl, a.groupName)
+  const groupB = extractGroup(b.postUrl, b.groupName)
+  if (groupA && groupB && groupA !== groupB) {
+    return false
+  }
+
+  // TRONG CÙNG MỘT NHÓM: TUYỆT ĐỐI KHÔNG ĐƯỢC TRÙNG 1 BÀI VIẾT
+  const pA = extractPostId(a.postUrl) || (a.id.startsWith('fb_') && !a.id.startsWith('fb_cmt_') ? a.id.replace('fb_', '') : null)
+  const pB = extractPostId(b.postUrl) || (b.id.startsWith('fb_') && !b.id.startsWith('fb_cmt_') ? b.id.replace('fb_', '') : null)
+  if (pA && pB && pA.toLowerCase() === pB.toLowerCase()) return true
+
+  const urlA = (a.postUrl || '').replace(/^https?:\/\//i, '').replace(/^(?:www|m|web)\./i, '').split('?')[0].split('#')[0].replace(/\/+$/, '')
+  const urlB = (b.postUrl || '').replace(/^https?:\/\//i, '').replace(/^(?:www|m|web)\./i, '').split('?')[0].split('#')[0].replace(/\/+$/, '')
+  if (urlA && urlB && urlA === urlB && !urlA.endsWith('/groups')) return true
+
+  const isCmtA = a.id.startsWith('fb_cmt_') || a.content.includes('[Ứng viên bình luận xin việc]')
+  const isCmtB = b.id.startsWith('fb_cmt_') || b.content.includes('[Ứng viên bình luận xin việc]')
+  if (isCmtA !== isCmtB) {
+    if (pA && pB && pA.toLowerCase() === pB.toLowerCase()) return true
+    if (urlA && urlB && urlA === urlB && !urlA.endsWith('/groups')) return true
+  }
+
+  const cA = normalizeContent(a.content)
+  const cB = normalizeContent(b.content)
+  if (cA.length >= 25 && cB.length >= 25) {
+    if (cA === cB) return true
+    const minLen = Math.min(cA.length, cB.length)
+    if (minLen >= 40 && cA.slice(0, 50) === cB.slice(0, 50)) return true
+  }
+
+  const authA = normalizeAuthor(a.authorName)
+  const authB = normalizeAuthor(b.authorName)
+  const isAnonA = !authA || /nguoithamgiaandanh|thanhviennhom|anonymous|thanhvienandanh/.test(authA)
+  const isAnonB = !authB || /nguoithamgiaandanh|thanhviennhom|anonymous|thanhvienandanh/.test(authB)
+  if (!isAnonA && !isAnonB && authA === authB) {
+    if (cA.length >= 20 && cB.length >= 20 && cA.slice(0, 25) === cB.slice(0, 25)) return true
+  }
+
+  return false
+}
+
 export function ScannerPage() {
   const [industryMode, setIndustryMode] = useState<IndustryMode>('RECRUITMENT')
   const [configTab, setConfigTab] = useState<'target' | 'filters'>('target')
@@ -134,11 +229,19 @@ export function ScannerPage() {
       setRecipient(config.notifyRecipient ?? '')
       setIsRunning(config.isRunning)
     })
-    api.scannerGetLeads().then(setLeads)
+    api.scannerGetLeads().then((raw) => {
+      const deduped: Lead[] = []
+      for (const l of raw) {
+        if (!deduped.some((existing) => isSameLead(existing, l))) {
+          deduped.push(l)
+        }
+      }
+      setLeads(deduped)
+    })
 
     const disposers = [
       api.onScannerEvent('scanner:new_lead', (lead: Lead) => {
-        setLeads((prev) => (prev.some((l) => l.id === lead.id) ? prev : [lead, ...prev]))
+        setLeads((prev) => (prev.some((l) => isSameLead(l, lead)) ? prev : [lead, ...prev]))
         notifyNewLead(lead)
       }),
       api.onScannerEvent('scanner:status', (s: { isRunning: boolean; scanning: boolean }) => {
@@ -283,11 +386,21 @@ export function ScannerPage() {
     }
   }
 
+  const dedupedLeads = useMemo(() => {
+    const result: Lead[] = []
+    for (const l of leads) {
+      if (!result.some((existing) => isSameLead(existing, l))) {
+        result.push(l)
+      }
+    }
+    return result
+  }, [leads])
+
   const visibleLeads = useMemo(
-    () => (filter === 'all' ? leads : leads.filter((l) => l.status === filter)),
-    [leads, filter],
+    () => (filter === 'all' ? dedupedLeads : dedupedLeads.filter((l) => l.status === filter)),
+    [dedupedLeads, filter],
   )
-  const newCount = useMemo(() => leads.filter((l) => l.status === 'new').length, [leads])
+  const newCount = useMemo(() => dedupedLeads.filter((l) => l.status === 'new').length, [dedupedLeads])
 
   return (
     <div className="scanner-page">
